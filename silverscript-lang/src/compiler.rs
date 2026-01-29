@@ -243,25 +243,25 @@ fn compile_function(
 
     let mut env: HashMap<String, Expr> = contract_constants.clone();
     let mut builder = ScriptBuilder::new();
-    let mut returns: Vec<Expr> = Vec::new();
+    let mut yields: Vec<Expr> = Vec::new();
 
     for stmt in &function.body {
-        compile_statement(stmt, &mut env, &params, &mut builder, options, contract_constants, &mut returns)?;
+        compile_statement(stmt, &mut env, &params, &mut builder, options, contract_constants, &mut yields)?;
     }
 
-    let return_count = returns.len();
-    if return_count == 0 {
+    let yield_count = yields.len();
+    if yield_count == 0 {
         for _ in 0..param_count {
             builder.add_op(OpDrop)?;
         }
         builder.add_op(OpTrue)?;
     } else {
         let mut stack_depth = 0i64;
-        for expr in &returns {
+        for expr in &yields {
             compile_expr(expr, &env, &params, &mut builder, options, &mut HashSet::new(), &mut stack_depth)?;
         }
         for _ in 0..param_count {
-            builder.add_i64(return_count as i64)?;
+            builder.add_i64(yield_count as i64)?;
             builder.add_op(OpRoll)?;
             builder.add_op(OpDrop)?;
         }
@@ -276,7 +276,7 @@ fn compile_statement(
     builder: &mut ScriptBuilder,
     options: CompileOptions,
     contract_constants: &HashMap<String, Expr>,
-    returns: &mut Vec<Expr>,
+    yields: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
     match stmt {
         Statement::VariableDefinition { name, expr, .. } => {
@@ -299,15 +299,15 @@ fn compile_statement(
             builder,
             options,
             contract_constants,
-            returns,
+            yields,
         ),
         Statement::For { ident, start, end, body } => {
-            compile_for_statement(ident, start, end, body, env, params, builder, options, contract_constants, returns)
+            compile_for_statement(ident, start, end, body, env, params, builder, options, contract_constants, yields)
         }
         Statement::Yield { expr } => {
             let mut visiting = HashSet::new();
             let resolved = resolve_expr(expr.clone(), env, &mut visiting)?;
-            returns.push(resolved);
+            yields.push(resolved);
             Ok(())
         }
         Statement::TupleAssignment { left_name, right_name, expr, .. } => match expr.clone() {
@@ -333,17 +333,17 @@ fn compile_if_statement(
     builder: &mut ScriptBuilder,
     options: CompileOptions,
     contract_constants: &HashMap<String, Expr>,
-    returns: &mut Vec<Expr>,
+    yields: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
     let mut stack_depth = 0i64;
     compile_expr(condition, env, params, builder, options, &mut HashSet::new(), &mut stack_depth)?;
     builder.add_op(OpIf)?;
 
-    compile_block(then_branch, env, params, builder, options, contract_constants, returns)?;
+    compile_block(then_branch, env, params, builder, options, contract_constants, yields)?;
 
     if let Some(else_branch) = else_branch {
         builder.add_op(OpElse)?;
-        compile_block(else_branch, env, params, builder, options, contract_constants, returns)?;
+        compile_block(else_branch, env, params, builder, options, contract_constants, yields)?;
     }
 
     builder.add_op(OpEndIf)?;
@@ -380,10 +380,10 @@ fn compile_block(
     builder: &mut ScriptBuilder,
     options: CompileOptions,
     contract_constants: &HashMap<String, Expr>,
-    returns: &mut Vec<Expr>,
+    yields: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
     for stmt in statements {
-        compile_statement(stmt, env, params, builder, options, contract_constants, returns)?;
+        compile_statement(stmt, env, params, builder, options, contract_constants, yields)?;
     }
     Ok(())
 }
@@ -398,7 +398,7 @@ fn compile_for_statement(
     builder: &mut ScriptBuilder,
     options: CompileOptions,
     contract_constants: &HashMap<String, Expr>,
-    returns: &mut Vec<Expr>,
+    yields: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
     let start = eval_const_int(start_expr, contract_constants)?;
     let end = eval_const_int(end_expr, contract_constants)?;
@@ -410,7 +410,7 @@ fn compile_for_statement(
     let previous = env.get(&name).cloned();
     for value in start..end {
         env.insert(name.clone(), Expr::Int(value));
-        compile_block(body, env, params, builder, options, contract_constants, returns)?;
+        compile_block(body, env, params, builder, options, contract_constants, yields)?;
     }
 
     match previous {
