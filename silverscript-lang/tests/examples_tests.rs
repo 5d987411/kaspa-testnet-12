@@ -11,7 +11,6 @@ use kaspa_txscript::script_builder::ScriptBuilder;
 use kaspa_txscript::{EngineCtx, EngineFlags, TxScriptEngine};
 use rand::{RngCore, thread_rng};
 use secp256k1::{Keypair, Secp256k1, SecretKey};
-use silverscript_lang::ast::Expr;
 use silverscript_lang::compiler::{CompileOptions, CompiledContract, compile_contract, function_branch_index};
 use std::fs;
 
@@ -311,8 +310,7 @@ fn compiles_for_loop_ctor_example_with_constructor_bounds() {
 fn compiles_yield_basic_example_and_verifies() {
     let source = load_example_source("yield_basic.sil");
 
-    let constructor_args = [(8).into()];
-    let compiled = compile_contract(&source, &constructor_args, CompileOptions::default()).expect("compile succeeds");
+    let compiled = compile_contract(&source, &[], CompileOptions::default()).expect("compile succeeds");
     let selector = selector_for(&compiled, "main");
     let script = script_with_return_checks(compiled.script, &[12, 8]);
     let recipient0 = [9u8; 20];
@@ -321,7 +319,7 @@ fn compiles_yield_basic_example_and_verifies() {
     let output1_script = build_p2pkh_script(&recipient1);
 
     // Test main(b=8) returns [12, 8] on stack.
-    let sigscript = ScriptBuilder::new().add_i64(selector).unwrap().drain();
+    let sigscript = ScriptBuilder::new().add_i64(8).unwrap().add_i64(selector).unwrap().drain();
     let result = run_contract_with_tx(script, output0_script, output1_script, 2000, 500, 500, sigscript, 0);
     assert!(result.is_ok(), "yield basic failed: {}", result.unwrap_err());
 }
