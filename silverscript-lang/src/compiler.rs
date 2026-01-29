@@ -284,6 +284,7 @@ fn compile_block(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_for_statement(
     ident: &str,
     start_expr: &Expr,

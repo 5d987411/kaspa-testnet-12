@@ -360,7 +360,7 @@ fn runs_token_example_and_verifies() {
     let out_amount = in_amount / num_outs;
     let mut expected_element = out_amount.to_le_bytes().to_vec();
     expected_element.extend_from_slice(&recipient_pk);
-    let expected = vec![expected_element.clone(), expected_element.clone(), expected_element.clone(), expected_element];
+    let expected = [expected_element.clone(), expected_element.clone(), expected_element.clone(), expected_element];
 
     let mut checked_script = ScriptBuilder::new();
     checked_script.add_ops(&compiled.script).unwrap();
