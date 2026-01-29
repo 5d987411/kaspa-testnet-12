@@ -1,21 +1,18 @@
+use kaspa_consensus_core::Hash;
 use kaspa_consensus_core::hashing::sighash::SigHashReusedValuesUnsync;
 use kaspa_consensus_core::subnets::SubnetworkId;
 use kaspa_consensus_core::tx::{
-    CovenantBinding, PopulatedTransaction, ScriptPublicKey, Transaction, TransactionId,
-    TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry, VerifiableTransaction,
+    CovenantBinding, PopulatedTransaction, ScriptPublicKey, Transaction, TransactionId, TransactionInput, TransactionOutpoint,
+    TransactionOutput, UtxoEntry, VerifiableTransaction,
 };
-use kaspa_consensus_core::Hash;
 use kaspa_txscript::caches::Cache;
 use kaspa_txscript::covenants::CovenantsContext;
 use kaspa_txscript::opcodes::codes::*;
 use kaspa_txscript::script_builder::ScriptBuilder;
 use kaspa_txscript::{EngineCtx, EngineFlags, SeqCommitAccessor, TxScriptEngine};
-use silverscript_lang::compiler::{compile_contract, function_branch_index, CompileOptions};
+use silverscript_lang::compiler::{CompileOptions, compile_contract, function_branch_index};
 
-fn run_script_with_selector(
-    script: Vec<u8>,
-    selector: i64,
-) -> Result<(), kaspa_txscript_errors::TxScriptError> {
+fn run_script_with_selector(script: Vec<u8>, selector: i64) -> Result<(), kaspa_txscript_errors::TxScriptError> {
     let sigscript = ScriptBuilder::new().add_i64(selector).unwrap().drain();
     run_script_with_sigscript(script, sigscript)
 }
@@ -31,35 +28,14 @@ fn run_script_with_tx(
     let sigscript = ScriptBuilder::new().add_i64(selector).unwrap().drain();
 
     let input = TransactionInput {
-        previous_outpoint: TransactionOutpoint {
-            transaction_id: TransactionId::from_bytes([0u8; 32]),
-            index: 0,
-        },
+        previous_outpoint: TransactionOutpoint { transaction_id: TransactionId::from_bytes([0u8; 32]), index: 0 },
         signature_script: sigscript,
         sequence,
         sig_op_count: 0,
     };
-    let output = TransactionOutput {
-        value: 1000,
-        script_public_key: ScriptPublicKey::new(0, script.clone().into()),
-        covenant: None,
-    };
-    let tx = Transaction::new(
-        1,
-        vec![input.clone()],
-        vec![output.clone()],
-        lock_time,
-        Default::default(),
-        0,
-        vec![],
-    );
-    let utxo_entry = UtxoEntry::new(
-        output.value,
-        output.script_public_key.clone(),
-        0,
-        tx.is_coinbase(),
-        None,
-    );
+    let output = TransactionOutput { value: 1000, script_public_key: ScriptPublicKey::new(0, script.clone().into()), covenant: None };
+    let tx = Transaction::new(1, vec![input.clone()], vec![output.clone()], lock_time, Default::default(), 0, vec![]);
+    let utxo_entry = UtxoEntry::new(output.value, output.script_public_key.clone(), 0, tx.is_coinbase(), None);
     let populated_tx = PopulatedTransaction::new(&tx, vec![utxo_entry.clone()]);
 
     let mut vm = TxScriptEngine::from_transaction_input(
@@ -68,50 +44,24 @@ fn run_script_with_tx(
         0,
         &utxo_entry,
         EngineCtx::new(&sig_cache).with_reused(&reused_values),
-        EngineFlags {
-            covenants_enabled: true,
-        },
+        EngineFlags { covenants_enabled: true },
     );
     vm.execute()
 }
 
-fn run_script_with_sigscript(
-    script: Vec<u8>,
-    sigscript: Vec<u8>,
-) -> Result<(), kaspa_txscript_errors::TxScriptError> {
+fn run_script_with_sigscript(script: Vec<u8>, sigscript: Vec<u8>) -> Result<(), kaspa_txscript_errors::TxScriptError> {
     let reused_values = SigHashReusedValuesUnsync::new();
     let sig_cache = Cache::new(10_000);
 
     let input = TransactionInput {
-        previous_outpoint: TransactionOutpoint {
-            transaction_id: TransactionId::from_bytes([1u8; 32]),
-            index: 0,
-        },
+        previous_outpoint: TransactionOutpoint { transaction_id: TransactionId::from_bytes([1u8; 32]), index: 0 },
         signature_script: sigscript,
         sequence: 0,
         sig_op_count: 0,
     };
-    let output = TransactionOutput {
-        value: 1000,
-        script_public_key: ScriptPublicKey::new(0, script.clone().into()),
-        covenant: None,
-    };
-    let tx = Transaction::new(
-        1,
-        vec![input.clone()],
-        vec![output.clone()],
-        0,
-        Default::default(),
-        0,
-        vec![],
-    );
-    let utxo_entry = UtxoEntry::new(
-        output.value,
-        output.script_public_key.clone(),
-        0,
-        tx.is_coinbase(),
-        None,
-    );
+    let output = TransactionOutput { value: 1000, script_public_key: ScriptPublicKey::new(0, script.clone().into()), covenant: None };
+    let tx = Transaction::new(1, vec![input.clone()], vec![output.clone()], 0, Default::default(), 0, vec![]);
+    let utxo_entry = UtxoEntry::new(output.value, output.script_public_key.clone(), 0, tx.is_coinbase(), None);
     let populated_tx = PopulatedTransaction::new(&tx, vec![utxo_entry.clone()]);
 
     let mut vm = TxScriptEngine::from_transaction_input(
@@ -120,9 +70,7 @@ fn run_script_with_sigscript(
         0,
         &utxo_entry,
         EngineCtx::new(&sig_cache).with_reused(&reused_values),
-        EngineFlags {
-            covenants_enabled: true,
-        },
+        EngineFlags { covenants_enabled: true },
     );
     vm.execute()
 }
@@ -140,34 +88,21 @@ fn run_script_with_tx_and_covenants(
     }
     let populated = PopulatedTransaction::new(&tx, entries);
     let cov_ctx = CovenantsContext::from_tx(&populated).unwrap();
-    let mut ctx = EngineCtx::new(&sig_cache)
-        .with_reused(&reused_values)
-        .with_covenants_ctx(&cov_ctx);
+    let mut ctx = EngineCtx::new(&sig_cache).with_reused(&reused_values).with_covenants_ctx(&cov_ctx);
     if let Some(accessor) = seq_commit_accessor {
         ctx = ctx.with_seq_commit_accessor(accessor);
     }
 
     let utxo_entry = populated.utxo(0).expect("utxo entry for input 0");
-    let mut vm = TxScriptEngine::from_transaction_input(
-        &populated,
-        &tx.inputs[0],
-        0,
-        utxo_entry,
-        ctx,
-        EngineFlags {
-            covenants_enabled: true,
-        },
-    );
+    let mut vm =
+        TxScriptEngine::from_transaction_input(&populated, &tx.inputs[0], 0, utxo_entry, ctx, EngineFlags { covenants_enabled: true });
     vm.execute()
 }
 
 fn build_basic_opcode_tx(sigscript: Vec<u8>) -> (Transaction, Vec<UtxoEntry>) {
     let outpoint_txid = TransactionId::from_bytes(*b"0123456789abcdef0123456789abcdef");
     let input = TransactionInput {
-        previous_outpoint: TransactionOutpoint {
-            transaction_id: outpoint_txid,
-            index: 7,
-        },
+        previous_outpoint: TransactionOutpoint { transaction_id: outpoint_txid, index: 7 },
         signature_script: sigscript,
         sequence: u64::from_le_bytes(*b"sequence"),
         sig_op_count: 0,
@@ -176,59 +111,24 @@ fn build_basic_opcode_tx(sigscript: Vec<u8>) -> (Transaction, Vec<UtxoEntry>) {
     let output0_spk = ScriptPublicKey::new(0, b"outspk".to_vec().into());
     let output1_spk = ScriptPublicKey::new(0, b"extra".to_vec().into());
     let outputs = vec![
-        TransactionOutput {
-            value: 1000,
-            script_public_key: output0_spk,
-            covenant: None,
-        },
-        TransactionOutput {
-            value: 2000,
-            script_public_key: output1_spk,
-            covenant: None,
-        },
+        TransactionOutput { value: 1000, script_public_key: output0_spk, covenant: None },
+        TransactionOutput { value: 2000, script_public_key: output1_spk, covenant: None },
     ];
 
     let subnetwork_id = SubnetworkId::from_bytes(*b"abcdefghijklmnopqrst");
     let payload = b"payload-data".to_vec();
-    let tx = Transaction::new(
-        1,
-        vec![input.clone()],
-        outputs,
-        0,
-        subnetwork_id,
-        123,
-        payload,
-    );
+    let tx = Transaction::new(1, vec![input.clone()], outputs, 0, subnetwork_id, 123, payload);
 
     let utxo_spk = ScriptPublicKey::new(0, b"inputspk".to_vec().into());
     let utxo_entry = UtxoEntry::new(5_000, utxo_spk, 0, false, None);
     (tx, vec![utxo_entry])
 }
 
-fn build_covenant_opcode_tx(
-    sigscript: Vec<u8>,
-    covenant_id_a: Hash,
-    covenant_id_b: Hash,
-) -> (Transaction, Vec<UtxoEntry>) {
+fn build_covenant_opcode_tx(sigscript: Vec<u8>, covenant_id_a: Hash, covenant_id_b: Hash) -> (Transaction, Vec<UtxoEntry>) {
     let inputs = vec![
-        TransactionInput::new(
-            TransactionOutpoint::new(Hash::from_u64_word(10), 0),
-            sigscript,
-            0,
-            0,
-        ),
-        TransactionInput::new(
-            TransactionOutpoint::new(Hash::from_u64_word(11), 1),
-            vec![],
-            0,
-            0,
-        ),
-        TransactionInput::new(
-            TransactionOutpoint::new(Hash::from_u64_word(12), 2),
-            vec![],
-            0,
-            0,
-        ),
+        TransactionInput::new(TransactionOutpoint::new(Hash::from_u64_word(10), 0), sigscript, 0, 0),
+        TransactionInput::new(TransactionOutpoint::new(Hash::from_u64_word(11), 1), vec![], 0, 0),
+        TransactionInput::new(TransactionOutpoint::new(Hash::from_u64_word(12), 2), vec![], 0, 0),
     ];
 
     let spk = ScriptPublicKey::new(0, b"covenant".to_vec().into());
@@ -236,38 +136,21 @@ fn build_covenant_opcode_tx(
         TransactionOutput {
             value: 10,
             script_public_key: spk.clone(),
-            covenant: Some(CovenantBinding {
-                authorizing_input: 0,
-                covenant_id: covenant_id_a,
-            }),
+            covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: covenant_id_a }),
         },
         TransactionOutput {
             value: 20,
             script_public_key: spk.clone(),
-            covenant: Some(CovenantBinding {
-                authorizing_input: 1,
-                covenant_id: covenant_id_b,
-            }),
+            covenant: Some(CovenantBinding { authorizing_input: 1, covenant_id: covenant_id_b }),
         },
         TransactionOutput {
             value: 30,
             script_public_key: spk.clone(),
-            covenant: Some(CovenantBinding {
-                authorizing_input: 0,
-                covenant_id: covenant_id_a,
-            }),
+            covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: covenant_id_a }),
         },
     ];
 
-    let tx = Transaction::new(
-        1,
-        inputs,
-        outputs,
-        0,
-        SubnetworkId::from_bytes([0u8; 20]),
-        0,
-        vec![],
-    );
+    let tx = Transaction::new(1, inputs, outputs, 0, SubnetworkId::from_bytes([0u8; 20]), 0, vec![]);
 
     let utxo_spk = ScriptPublicKey::new(0, b"utxo".to_vec().into());
     let entries = vec![
@@ -1145,17 +1028,12 @@ fn executes_opcode_builtins_basic() {
     ];
 
     for (name, source) in cases {
-        let compiled =
-            compile_contract(source, CompileOptions::default()).expect("compile succeeds");
+        let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
         let selector = selector_for(source, "main");
         let sigscript = ScriptBuilder::new().add_i64(selector).unwrap().drain();
         let (tx, entries) = build_basic_opcode_tx(sigscript);
         let result = run_script_with_tx_and_covenants(compiled.script, tx, entries, None);
-        assert!(
-            result.is_ok(),
-            "opcode builtin {name} failed: {}",
-            result.unwrap_err()
-        );
+        assert!(result.is_ok(), "opcode builtin {name} failed: {}", result.unwrap_err());
     }
 }
 
@@ -1183,11 +1061,7 @@ fn executes_opcode_builtins_covenants() {
     let (tx, entries) = build_covenant_opcode_tx(sigscript, covenant_id_a, covenant_id_b);
 
     let result = run_script_with_tx_and_covenants(compiled.script, tx, entries, None);
-    assert!(
-        result.is_ok(),
-        "opcode builtins covenants failed: {}",
-        result.unwrap_err()
-    );
+    assert!(result.is_ok(), "opcode builtins covenants failed: {}", result.unwrap_err());
 }
 
 #[test]
@@ -1224,11 +1098,7 @@ fn executes_opcode_chainblock_seq_commit() {
     let commitment = Hash::from_bytes(*b"fedcba9876543210fedcba9876543210");
     let accessor = MockSeqCommitAccessor { block, commitment };
     let result = run_script_with_tx_and_covenants(compiled.script, tx, entries, Some(&accessor));
-    assert!(
-        result.is_ok(),
-        "chainblock seq commit failed: {}",
-        result.unwrap_err()
-    );
+    assert!(result.is_ok(), "chainblock seq commit failed: {}", result.unwrap_err());
 }
 
 #[test]
@@ -1292,14 +1162,7 @@ fn compiles_time_op_csv_and_verifies() {
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
     let selector = selector_for(source, "main");
 
-    let body = ScriptBuilder::new()
-        .add_i64(10)
-        .unwrap()
-        .add_op(OpCheckSequenceVerify)
-        .unwrap()
-        .add_op(OpTrue)
-        .unwrap()
-        .drain();
+    let body = ScriptBuilder::new().add_i64(10).unwrap().add_op(OpCheckSequenceVerify).unwrap().add_op(OpTrue).unwrap().drain();
     let expected = wrap_with_dispatch(body, selector);
 
     assert_eq!(compiled.script, expected);
@@ -1372,21 +1235,10 @@ fn compiles_sigscript_inputs_and_verifies() {
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
     let selector = selector_for(source, "main");
-    let sigscript = ScriptBuilder::new()
-        .add_i64(3)
-        .unwrap()
-        .add_i64(4)
-        .unwrap()
-        .add_i64(selector)
-        .unwrap()
-        .drain();
+    let sigscript = ScriptBuilder::new().add_i64(3).unwrap().add_i64(4).unwrap().add_i64(selector).unwrap().drain();
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
-    assert!(
-        result.is_ok(),
-        "sigscript test failed: {}",
-        result.unwrap_err()
-    );
+    assert!(result.is_ok(), "sigscript test failed: {}", result.unwrap_err());
 }
 
 #[test]
@@ -1401,19 +1253,10 @@ fn compiles_sigscript_reused_inputs_and_verifies() {
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
     let selector = selector_for(source, "main");
-    let sigscript = ScriptBuilder::new()
-        .add_i64(3)
-        .unwrap()
-        .add_i64(selector)
-        .unwrap()
-        .drain();
+    let sigscript = ScriptBuilder::new().add_i64(3).unwrap().add_i64(selector).unwrap().drain();
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
-    assert!(
-        result.is_ok(),
-        "sigscript reuse test failed: {}",
-        result.unwrap_err()
-    );
+    assert!(result.is_ok(), "sigscript reuse test failed: {}", result.unwrap_err());
 }
 
 #[test]
@@ -1428,14 +1271,7 @@ fn compiles_sigscript_inputs_and_fails_on_wrong_sum() {
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
     let selector = selector_for(source, "main");
-    let sigscript = ScriptBuilder::new()
-        .add_i64(2)
-        .unwrap()
-        .add_i64(4)
-        .unwrap()
-        .add_i64(selector)
-        .unwrap()
-        .drain();
+    let sigscript = ScriptBuilder::new().add_i64(2).unwrap().add_i64(4).unwrap().add_i64(selector).unwrap().drain();
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
     assert!(result.is_err());
@@ -1453,12 +1289,7 @@ fn compiles_sigscript_reused_inputs_and_fails_on_wrong_value() {
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
     let selector = selector_for(source, "main");
-    let sigscript = ScriptBuilder::new()
-        .add_i64(4)
-        .unwrap()
-        .add_i64(selector)
-        .unwrap()
-        .drain();
+    let sigscript = ScriptBuilder::new().add_i64(4).unwrap().add_i64(selector).unwrap().drain();
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
     assert!(result.is_err());

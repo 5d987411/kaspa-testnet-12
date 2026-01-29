@@ -1,6 +1,6 @@
+use pest::Parser;
 use pest::error::Error;
 use pest::iterators::Pairs;
-use pest::Parser;
 use pest_derive::Parser;
 
 #[derive(Parser)]
