@@ -9,11 +9,11 @@ use solang_parser::pt::{Comment as SolidityComment, SourceUnit as SoliditySource
 #[grammar = "silverscript.pest"]
 pub struct SilverScriptParser;
 
-pub fn parse_source_file(input: &str) -> Result<Pairs<Rule>, Error<Rule>> {
+pub fn parse_source_file(input: &str) -> Result<Pairs<'_, Rule>, Error<Rule>> {
     SilverScriptParser::parse(Rule::source_file, input)
 }
 
-pub fn parse_expression(input: &str) -> Result<Pairs<Rule>, Error<Rule>> {
+pub fn parse_expression(input: &str) -> Result<Pairs<'_, Rule>, Error<Rule>> {
     SilverScriptParser::parse(Rule::expression, input)
 }
 
