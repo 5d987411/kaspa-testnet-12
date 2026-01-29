@@ -11,7 +11,7 @@ use kaspa_txscript::script_builder::ScriptBuilder;
 use kaspa_txscript::{EngineCtx, EngineFlags, TxScriptEngine};
 use rand::{RngCore, thread_rng};
 use secp256k1::{Keypair, Secp256k1, SecretKey};
-use silverscript_lang::compiler::{CompileOptions, compile_contract, function_branch_index};
+use silverscript_lang::compiler::{CompileOptions, CompiledContract, compile_contract, function_branch_index};
 use std::fs;
 
 fn build_null_data_script(tag: i64, message: &str) -> Vec<u8> {
@@ -23,8 +23,8 @@ fn load_example_source(name: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|err| panic!("failed to read {path}: {err}"))
 }
 
-fn selector_for(source: &str, function_name: &str) -> i64 {
-    function_branch_index(source, function_name).expect("selector resolved")
+fn selector_for(compiled: &CompiledContract, function_name: &str) -> i64 {
+    function_branch_index(&compiled.ast, function_name).expect("selector resolved")
 }
 
 fn random_keypair() -> Keypair {
@@ -156,7 +156,7 @@ fn compiles_announcement_example_and_verifies() {
     let source = load_example_source("announcement.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(&source, "announce");
+    let selector = selector_for(&compiled, "announce");
     let message = "A contract may not injure a human being or, through inaction, allow a human being to come to harm.";
     let announcement_script = build_null_data_script(27906, message);
 
@@ -198,7 +198,7 @@ fn compiles_constant_budget_example_and_verifies() {
     let source = load_example_source("constant_budget.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(&source, "spend");
+    let selector = selector_for(&compiled, "spend");
     let recipient0 = [2u8; 20];
     let recipient1 = [3u8; 20];
     let output0_script = build_p2pkh_script(&recipient0);
@@ -236,7 +236,7 @@ fn compiles_for_loop_example_and_verifies() {
     let source = load_example_source("for_loop.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(&source, "check");
+    let selector = selector_for(&compiled, "check");
     let recipient0 = [5u8; 20];
     let recipient1 = [6u8; 20];
     let recipient2 = [7u8; 20];
@@ -283,7 +283,7 @@ fn compiles_yield_basic_example_and_verifies() {
     let source = load_example_source("yield_basic.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(&source, "main");
+    let selector = selector_for(&compiled, "main");
     let script = script_with_return_checks(compiled.script, &[12, 8]);
     let recipient0 = [9u8; 20];
     let recipient1 = [10u8; 20];
@@ -301,7 +301,7 @@ fn compiles_yield_loop_example_and_verifies() {
     let source = load_example_source("yield_loop.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(&source, "main");
+    let selector = selector_for(&compiled, "main");
     let script = script_with_return_checks(compiled.script, &[1, 2, 3, 4]);
     let recipient0 = [11u8; 20];
     let recipient1 = [12u8; 20];
@@ -327,7 +327,7 @@ fn compiles_hodl_vault_example_and_verifies() {
     let source = load_example_source("hodl_vault.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(&source, "spend");
+    let selector = selector_for(&compiled, "spend");
 
     let owner = random_keypair();
     let oracle = random_keypair();
@@ -393,8 +393,8 @@ fn compiles_mecenas_example_and_verifies() {
     let source = load_example_source("mecenas.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let receive_selector = selector_for(&source, "receive");
-    let reclaim_selector = selector_for(&source, "reclaim");
+    let receive_selector = selector_for(&compiled, "receive");
+    let reclaim_selector = selector_for(&compiled, "reclaim");
     let recipient = [1u8; 20];
     let funder_key = random_keypair();
     let funder_pk = funder_key.x_only_public_key().0.serialize();
@@ -501,8 +501,8 @@ fn compiles_mecenas_locktime_example_and_verifies() {
     let source = load_example_source("mecenas_locktime.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let receive_selector = selector_for(&source, "receive");
-    let reclaim_selector = selector_for(&source, "reclaim");
+    let receive_selector = selector_for(&compiled, "receive");
+    let reclaim_selector = selector_for(&compiled, "reclaim");
     let recipient = [3u8; 20];
     let funder_key = random_keypair();
     let funder_pk = funder_key.x_only_public_key().0.serialize();
@@ -626,7 +626,7 @@ fn compiles_p2pkh_example_and_verifies() {
     let source = load_example_source("p2pkh.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(&source, "spend");
+    let selector = selector_for(&compiled, "spend");
 
     let owner = random_keypair();
     let pubkey_bytes = owner.x_only_public_key().0.serialize();
@@ -683,8 +683,8 @@ fn compiles_transfer_with_timeout_and_verifies() {
     let source = load_example_source("transfer_with_timeout.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let transfer_selector = selector_for(&source, "transfer");
-    let timeout_selector = selector_for(&source, "timeout");
+    let transfer_selector = selector_for(&compiled, "transfer");
+    let timeout_selector = selector_for(&compiled, "timeout");
 
     let sender = random_keypair();
     let recipient = random_keypair();
@@ -787,7 +787,7 @@ fn compiles_covenant_escrow_example_and_verifies() {
     let source = load_example_source("covenant_escrow.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(&source, "spend");
+    let selector = selector_for(&compiled, "spend");
 
     let arbiter = random_keypair();
     let arbiter_pk = arbiter.x_only_public_key().0.serialize();
@@ -852,9 +852,9 @@ fn compiles_covenant_last_will_and_verifies() {
     let source = load_example_source("covenant_last_will.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let inherit_selector = selector_for(&source, "inherit");
-    let cold_selector = selector_for(&source, "cold");
-    let refresh_selector = selector_for(&source, "refresh");
+    let inherit_selector = selector_for(&compiled, "inherit");
+    let cold_selector = selector_for(&compiled, "cold");
+    let refresh_selector = selector_for(&compiled, "refresh");
 
     let inheritor = random_keypair();
     let cold = random_keypair();
@@ -1019,8 +1019,8 @@ fn compiles_covenant_mecenas_example_and_verifies() {
     let source = load_example_source("covenant_mecenas.silver");
 
     let compiled = compile_contract(&source, CompileOptions::default()).expect("compile succeeds");
-    let receive_selector = selector_for(&source, "receive");
-    let reclaim_selector = selector_for(&source, "reclaim");
+    let receive_selector = selector_for(&compiled, "receive");
+    let reclaim_selector = selector_for(&compiled, "reclaim");
     let recipient = [21u8; 20];
     let funder_key = random_keypair();
     let funder_pk = funder_key.x_only_public_key().0.serialize();

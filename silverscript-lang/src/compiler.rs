@@ -4,6 +4,7 @@ use kaspa_txscript::opcodes::codes::*;
 use kaspa_txscript::script_builder::{ScriptBuilder, ScriptBuilderError};
 use pest::Parser;
 use pest::iterators::Pair;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::parser::{Rule, SilverScriptParser};
@@ -40,10 +41,55 @@ pub struct CompiledContract {
     pub contract_name: String,
     pub function_name: String,
     pub script: Vec<u8>,
+    pub ast: ContractAst,
 }
 
-#[derive(Debug, Clone)]
-enum Expr {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractAst {
+    pub name: String,
+    pub params: Vec<String>,
+    pub constants: HashMap<String, Expr>,
+    pub functions: Vec<FunctionAst>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionAst {
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: Vec<Statement>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum Statement {
+    VariableDefinition { type_name: String, modifiers: Vec<String>, name: String, expr: Expr },
+    TupleAssignment { left_type: String, left_name: String, right_type: String, right_name: String, expr: Expr },
+    Assign { name: String, expr: Expr },
+    TimeOp { tx_var: TimeVar, expr: Expr, message: Option<String> },
+    Require { expr: Expr, message: Option<String> },
+    If { condition: Expr, then_branch: Vec<Statement>, else_branch: Option<Vec<Statement>> },
+    For { ident: String, start: Expr, end: Expr, body: Vec<Statement> },
+    Yield { expr: Expr },
+    Console { args: Vec<ConsoleArg> },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum ConsoleArg {
+    Identifier(String),
+    Literal(Expr),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeVar {
+    ThisAge,
+    TxTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum Expr {
     Int(i64),
     Bool(bool),
     Bytes(Vec<u8>),
@@ -59,20 +105,23 @@ enum Expr {
     Introspection { kind: IntrospectionKind, index: Box<Expr> },
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SplitPart {
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitPart {
     Left,
     Right,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum UnaryOp {
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnaryOp {
     Not,
     Neg,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum BinaryOp {
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BinaryOp {
     Or,
     And,
     BitOr,
@@ -91,8 +140,9 @@ enum BinaryOp {
     Mod,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum NullaryOp {
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NullaryOp {
     ActiveInputIndex,
     ActiveBytecode,
     TxInputsLength,
@@ -101,8 +151,9 @@ enum NullaryOp {
     TxLockTime,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum IntrospectionKind {
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IntrospectionKind {
     InputValue,
     InputLockingBytecode,
     OutputValue,
@@ -110,14 +161,18 @@ enum IntrospectionKind {
 }
 
 pub fn compile_contract(source: &str, options: CompileOptions) -> Result<CompiledContract, CompilerError> {
-    let (contract_name, contract_params, functions, constants) = parse_contract(source)?;
-    if functions.is_empty() {
+    let contract = parse_contract_ast(source)?;
+    compile_contract_ast(&contract, options)
+}
+
+pub fn compile_contract_ast(contract: &ContractAst, options: CompileOptions) -> Result<CompiledContract, CompilerError> {
+    if contract.functions.is_empty() {
         return Err(CompilerError::Unsupported("contract has no functions".to_string()));
     }
 
     let mut compiled_functions = Vec::new();
-    for fn_pair in functions {
-        compiled_functions.push(compile_function(fn_pair, &contract_params, &constants, options)?);
+    for func in &contract.functions {
+        compiled_functions.push(compile_function(func, &contract.params, &contract.constants, options)?);
     }
 
     let mut builder = ScriptBuilder::new();
@@ -143,99 +198,45 @@ pub fn compile_contract(source: &str, options: CompileOptions) -> Result<Compile
         builder.add_op(OpEndIf)?;
     }
 
-    Ok(CompiledContract { contract_name, function_name: "dispatch".to_string(), script: builder.drain() })
+    Ok(CompiledContract {
+        contract_name: contract.name.clone(),
+        function_name: "dispatch".to_string(),
+        script: builder.drain(),
+        ast: contract.clone(),
+    })
 }
 
-pub fn function_branch_index(source: &str, function_name: &str) -> Result<i64, CompilerError> {
-    let (_, _, functions, _) = parse_contract(source)?;
-    for (index, pair) in functions.iter().enumerate() {
-        if function_name_from_pair(pair).map(|s| s == function_name).unwrap_or(false) {
-            return Ok(index as i64);
-        }
-    }
-    Err(CompilerError::Unsupported(format!("function '{function_name}' not found")))
+pub fn function_branch_index(contract: &ContractAst, function_name: &str) -> Result<i64, CompilerError> {
+    contract
+        .functions
+        .iter()
+        .position(|func| func.name == function_name)
+        .map(|index| index as i64)
+        .ok_or_else(|| CompilerError::Unsupported(format!("function '{function_name}' not found")))
 }
-type ParsedContract<'a> = (String, Vec<String>, Vec<Pair<'a, Rule>>, HashMap<String, Expr>);
 
-fn parse_contract(source: &str) -> Result<ParsedContract<'_>, CompilerError> {
+pub fn parse_contract_ast(source: &str) -> Result<ContractAst, CompilerError> {
     let mut pairs = SilverScriptParser::parse(Rule::source_file, source)?;
     let source_pair = pairs.next().ok_or_else(|| CompilerError::Unsupported("empty source".to_string()))?;
-    let inner = source_pair.into_inner();
+    let mut contract = None;
 
-    let mut contract_name = None;
-    let mut contract_params: Vec<String> = Vec::new();
-    let mut functions = Vec::new();
-    let mut constants: HashMap<String, Expr> = HashMap::new();
-
-    for pair in inner {
+    for pair in source_pair.into_inner() {
         if pair.as_rule() == Rule::contract_definition {
-            let mut contract_inner = pair.into_inner();
-            let name_pair = contract_inner.next().ok_or_else(|| CompilerError::Unsupported("missing contract name".to_string()))?;
-            contract_name = Some(name_pair.as_str().to_string());
-
-            let params_pair =
-                contract_inner.next().ok_or_else(|| CompilerError::Unsupported("missing contract parameters".to_string()))?;
-            contract_params = parse_parameter_list(params_pair)?;
-
-            for item_pair in contract_inner {
-                let mut handled = false;
-                if item_pair.as_rule() == Rule::contract_item {
-                    let mut item_inner = item_pair.into_inner();
-                    if let Some(inner_item) = item_inner.next() {
-                        match inner_item.as_rule() {
-                            Rule::function_definition => {
-                                functions.push(inner_item);
-                                handled = true;
-                            }
-                            Rule::constant_definition => {
-                                let mut const_inner = inner_item.into_inner();
-                                let _type_name = const_inner
-                                    .next()
-                                    .ok_or_else(|| CompilerError::Unsupported("missing constant type".to_string()))?;
-                                let name_pair = const_inner
-                                    .next()
-                                    .ok_or_else(|| CompilerError::Unsupported("missing constant name".to_string()))?;
-                                let expr_pair = const_inner
-                                    .next()
-                                    .ok_or_else(|| CompilerError::Unsupported("missing constant initializer".to_string()))?;
-                                let expr = parse_expression(expr_pair)?;
-                                constants.insert(name_pair.as_str().to_string(), expr);
-                                handled = true;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-
-                if handled {
-                    continue;
-                }
-            }
+            contract = Some(parse_contract_definition(pair)?);
         }
     }
 
-    let contract_name = contract_name.ok_or_else(|| CompilerError::Unsupported("no contract definition".to_string()))?;
-    Ok((contract_name, contract_params, functions, constants))
-}
-
-fn function_name_from_pair(pair: &Pair<'_, Rule>) -> Option<String> {
-    let mut inner = pair.clone().into_inner();
-    inner.next().map(|p| p.as_str().to_string())
+    contract.ok_or_else(|| CompilerError::Unsupported("no contract definition".to_string()))
 }
 
 fn compile_function(
-    pair: Pair<'_, Rule>,
+    function: &FunctionAst,
     contract_params: &[String],
     contract_constants: &HashMap<String, Expr>,
     options: CompileOptions,
 ) -> Result<(String, Vec<u8>), CompilerError> {
-    let mut inner = pair.into_inner();
-    let name_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing function name".to_string()))?;
-    let fn_name = name_pair.as_str().to_string();
-
-    let params = inner.next().ok_or_else(|| CompilerError::Unsupported("missing function parameters".to_string()))?;
     let mut param_names = contract_params.to_vec();
-    param_names.extend(parse_parameter_list(params)?);
+    param_names.extend(function.params.iter().cloned());
     let param_count = param_names.len();
     let params =
         param_names.into_iter().enumerate().map(|(index, name)| (name, (param_count - 1 - index) as i64)).collect::<HashMap<_, _>>();
@@ -244,7 +245,7 @@ fn compile_function(
     let mut builder = ScriptBuilder::new();
     let mut returns: Vec<Expr> = Vec::new();
 
-    for stmt in inner {
+    for stmt in &function.body {
         compile_statement(stmt, &mut env, &params, &mut builder, options, contract_constants, &mut returns)?;
     }
 
@@ -265,11 +266,11 @@ fn compile_function(
             builder.add_op(OpDrop)?;
         }
     }
-    Ok((fn_name, builder.drain()))
+    Ok((function.name.clone(), builder.drain()))
 }
 
 fn compile_statement(
-    pair: Pair<'_, Rule>,
+    stmt: &Statement,
     env: &mut HashMap<String, Expr>,
     params: &HashMap<String, i64>,
     builder: &mut ScriptBuilder,
@@ -277,85 +278,56 @@ fn compile_statement(
     contract_constants: &HashMap<String, Expr>,
     returns: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
-    match pair.as_rule() {
-        Rule::variable_definition => {
-            let mut inner = pair.into_inner();
-            let _type_name = inner.next().ok_or_else(|| CompilerError::Unsupported("missing variable type".to_string()))?;
-
-            while let Some(p) = inner.peek() {
-                if p.as_rule() != Rule::modifier {
-                    break;
-                }
-                inner.next();
-            }
-
-            let ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing variable name".to_string()))?;
-            let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing variable initializer".to_string()))?;
-            let expr = parse_expression(expr_pair)?;
-            env.insert(ident.as_str().to_string(), expr);
+    match stmt {
+        Statement::VariableDefinition { name, expr, .. } => {
+            env.insert(name.clone(), expr.clone());
             Ok(())
         }
-        Rule::require_statement => {
-            let mut inner = pair.into_inner();
-            let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing require expression".to_string()))?;
-            let expr = parse_expression(expr_pair)?;
+        Statement::Require { expr, .. } => {
             let mut stack_depth = 0i64;
-            compile_expr(&expr, env, params, builder, options, &mut HashSet::new(), &mut stack_depth)?;
+            compile_expr(expr, env, params, builder, options, &mut HashSet::new(), &mut stack_depth)?;
             builder.add_op(OpVerify)?;
             Ok(())
         }
-        Rule::time_op_statement => compile_time_op_statement(pair, env, params, builder, options),
-        Rule::if_statement => compile_if_statement(pair, env, params, builder, options, contract_constants, returns),
-        Rule::for_statement => compile_for_statement(pair, env, params, builder, options, contract_constants, returns),
-        Rule::yield_statement => {
-            let mut inner = pair.into_inner();
-            let list_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing yield arguments".to_string()))?;
-            let args = parse_expression_list(list_pair)?;
-            if args.len() != 1 {
-                return Err(CompilerError::Unsupported("yield() expects a single argument".to_string()));
-            }
+        Statement::TimeOp { tx_var, expr, .. } => compile_time_op_statement(tx_var, expr, env, params, builder, options),
+        Statement::If { condition, then_branch, else_branch } => compile_if_statement(
+            condition,
+            then_branch,
+            else_branch.as_deref(),
+            env,
+            params,
+            builder,
+            options,
+            contract_constants,
+            returns,
+        ),
+        Statement::For { ident, start, end, body } => {
+            compile_for_statement(ident, start, end, body, env, params, builder, options, contract_constants, returns)
+        }
+        Statement::Yield { expr } => {
             let mut visiting = HashSet::new();
-            let resolved = resolve_expr(args[0].clone(), env, &mut visiting)?;
+            let resolved = resolve_expr(expr.clone(), env, &mut visiting)?;
             returns.push(resolved);
             Ok(())
         }
-        Rule::tuple_assignment => {
-            let mut inner = pair.into_inner();
-            let _type_left = inner.next().ok_or_else(|| CompilerError::Unsupported("missing left tuple type".to_string()))?;
-            let left_ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing left tuple name".to_string()))?;
-            let _type_right = inner.next().ok_or_else(|| CompilerError::Unsupported("missing right tuple type".to_string()))?;
-            let right_ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing right tuple name".to_string()))?;
-            let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing tuple expression".to_string()))?;
-
-            let expr = parse_expression(expr_pair)?;
-            match expr {
-                Expr::Split { source, index, .. } => {
-                    env.insert(
-                        left_ident.as_str().to_string(),
-                        Expr::Split { source: source.clone(), index: index.clone(), part: SplitPart::Left },
-                    );
-                    env.insert(right_ident.as_str().to_string(), Expr::Split { source, index, part: SplitPart::Right });
-                    Ok(())
-                }
-                _ => Err(CompilerError::Unsupported("tuple assignment only supports split()".to_string())),
-            }
-        }
-        Rule::assign_statement | Rule::console_statement => {
-            Err(CompilerError::Unsupported("statement type not supported in compiler yet".to_string()))
-        }
-        Rule::statement => {
-            if let Some(inner) = pair.into_inner().next() {
-                compile_statement(inner, env, params, builder, options, contract_constants, returns)
-            } else {
+        Statement::TupleAssignment { left_name, right_name, expr, .. } => match expr.clone() {
+            Expr::Split { source, index, .. } => {
+                env.insert(left_name.clone(), Expr::Split { source: source.clone(), index: index.clone(), part: SplitPart::Left });
+                env.insert(right_name.clone(), Expr::Split { source, index, part: SplitPart::Right });
                 Ok(())
             }
+            _ => Err(CompilerError::Unsupported("tuple assignment only supports split()".to_string())),
+        },
+        Statement::Assign { .. } | Statement::Console { .. } => {
+            Err(CompilerError::Unsupported("statement type not supported in compiler yet".to_string()))
         }
-        _ => Err(CompilerError::Unsupported(format!("unexpected statement: {:?}", pair.as_rule()))),
     }
 }
 
 fn compile_if_statement(
-    pair: Pair<'_, Rule>,
+    condition: &Expr,
+    then_branch: &[Statement],
+    else_branch: Option<&[Statement]>,
     env: &mut HashMap<String, Expr>,
     params: &HashMap<String, i64>,
     builder: &mut ScriptBuilder,
@@ -363,19 +335,15 @@ fn compile_if_statement(
     contract_constants: &HashMap<String, Expr>,
     returns: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
-    let mut inner = pair.into_inner();
-    let cond_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing if condition".to_string()))?;
-    let cond_expr = parse_expression(cond_pair)?;
     let mut stack_depth = 0i64;
-    compile_expr(&cond_expr, env, params, builder, options, &mut HashSet::new(), &mut stack_depth)?;
+    compile_expr(condition, env, params, builder, options, &mut HashSet::new(), &mut stack_depth)?;
     builder.add_op(OpIf)?;
 
-    let then_block = inner.next().ok_or_else(|| CompilerError::Unsupported("missing if block".to_string()))?;
-    compile_block(then_block, env, params, builder, options, contract_constants, returns)?;
+    compile_block(then_branch, env, params, builder, options, contract_constants, returns)?;
 
-    if let Some(else_block) = inner.next() {
+    if let Some(else_branch) = else_branch {
         builder.add_op(OpElse)?;
-        compile_block(else_block, env, params, builder, options, contract_constants, returns)?;
+        compile_block(else_branch, env, params, builder, options, contract_constants, returns)?;
     }
 
     builder.add_op(OpEndIf)?;
@@ -383,35 +351,30 @@ fn compile_if_statement(
 }
 
 fn compile_time_op_statement(
-    pair: Pair<'_, Rule>,
+    tx_var: &TimeVar,
+    expr: &Expr,
     env: &mut HashMap<String, Expr>,
     params: &HashMap<String, i64>,
     builder: &mut ScriptBuilder,
     options: CompileOptions,
 ) -> Result<(), CompilerError> {
-    let mut inner = pair.into_inner();
-    let tx_var = inner.next().ok_or_else(|| CompilerError::Unsupported("missing time op variable".to_string()))?;
-    let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing time op expression".to_string()))?;
-
-    let expr = parse_expression(expr_pair)?;
     let mut stack_depth = 0i64;
-    compile_expr(&expr, env, params, builder, options, &mut HashSet::new(), &mut stack_depth)?;
+    compile_expr(expr, env, params, builder, options, &mut HashSet::new(), &mut stack_depth)?;
 
-    match tx_var.as_str() {
-        "this.age" => {
+    match tx_var {
+        TimeVar::ThisAge => {
             builder.add_op(OpCheckSequenceVerify)?;
         }
-        "tx.time" => {
+        TimeVar::TxTime => {
             builder.add_op(OpCheckLockTimeVerify)?;
         }
-        _ => return Err(CompilerError::Unsupported(format!("unsupported time variable: {}", tx_var.as_str()))),
     }
 
     Ok(())
 }
 
 fn compile_block(
-    pair: Pair<'_, Rule>,
+    statements: &[Statement],
     env: &mut HashMap<String, Expr>,
     params: &HashMap<String, i64>,
     builder: &mut ScriptBuilder,
@@ -419,19 +382,17 @@ fn compile_block(
     contract_constants: &HashMap<String, Expr>,
     returns: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
-    match pair.as_rule() {
-        Rule::block => {
-            for stmt in pair.into_inner() {
-                compile_statement(stmt, env, params, builder, options, contract_constants, returns)?;
-            }
-            Ok(())
-        }
-        _ => compile_statement(pair, env, params, builder, options, contract_constants, returns),
+    for stmt in statements {
+        compile_statement(stmt, env, params, builder, options, contract_constants, returns)?;
     }
+    Ok(())
 }
 
 fn compile_for_statement(
-    pair: Pair<'_, Rule>,
+    ident: &str,
+    start_expr: &Expr,
+    end_expr: &Expr,
+    body: &[Statement],
     env: &mut HashMap<String, Expr>,
     params: &HashMap<String, i64>,
     builder: &mut ScriptBuilder,
@@ -439,25 +400,17 @@ fn compile_for_statement(
     contract_constants: &HashMap<String, Expr>,
     returns: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
-    let mut inner = pair.into_inner();
-    let ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop identifier".to_string()))?;
-    let start_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop start".to_string()))?;
-    let end_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop end".to_string()))?;
-    let block_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop body".to_string()))?;
-
-    let start_expr = parse_expression(start_pair)?;
-    let end_expr = parse_expression(end_pair)?;
-    let start = eval_const_int(&start_expr, contract_constants)?;
-    let end = eval_const_int(&end_expr, contract_constants)?;
+    let start = eval_const_int(start_expr, contract_constants)?;
+    let end = eval_const_int(end_expr, contract_constants)?;
     if end < start {
         return Err(CompilerError::Unsupported("for loop end must be >= start".to_string()));
     }
 
-    let name = ident.as_str().to_string();
+    let name = ident.to_string();
     let previous = env.get(&name).cloned();
     for value in start..end {
         env.insert(name.clone(), Expr::Int(value));
-        compile_block(block_pair.clone(), env, params, builder, options, contract_constants, returns)?;
+        compile_block(body, env, params, builder, options, contract_constants, returns)?;
     }
 
     match previous {
@@ -470,6 +423,207 @@ fn compile_for_statement(
     }
 
     Ok(())
+}
+
+fn parse_contract_definition(pair: Pair<'_, Rule>) -> Result<ContractAst, CompilerError> {
+    let mut inner = pair.into_inner();
+    let name_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing contract name".to_string()))?;
+    let params_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing contract parameters".to_string()))?;
+    let params = parse_parameter_list(params_pair)?;
+
+    let mut functions = Vec::new();
+    let mut constants: HashMap<String, Expr> = HashMap::new();
+
+    for item_pair in inner {
+        if item_pair.as_rule() != Rule::contract_item {
+            continue;
+        }
+        let mut item_inner = item_pair.into_inner();
+        if let Some(inner_item) = item_inner.next() {
+            match inner_item.as_rule() {
+                Rule::function_definition => {
+                    functions.push(parse_function_definition(inner_item)?);
+                }
+                Rule::constant_definition => {
+                    let mut const_inner = inner_item.into_inner();
+                    let _type_name =
+                        const_inner.next().ok_or_else(|| CompilerError::Unsupported("missing constant type".to_string()))?;
+                    let name_pair =
+                        const_inner.next().ok_or_else(|| CompilerError::Unsupported("missing constant name".to_string()))?;
+                    let expr_pair =
+                        const_inner.next().ok_or_else(|| CompilerError::Unsupported("missing constant initializer".to_string()))?;
+                    let expr = parse_expression(expr_pair)?;
+                    constants.insert(name_pair.as_str().to_string(), expr);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(ContractAst { name: name_pair.as_str().to_string(), params, constants, functions })
+}
+
+fn parse_function_definition(pair: Pair<'_, Rule>) -> Result<FunctionAst, CompilerError> {
+    let mut inner = pair.into_inner();
+    let name_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing function name".to_string()))?;
+    let params_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing function parameters".to_string()))?;
+    let params = parse_parameter_list(params_pair)?;
+
+    let mut body = Vec::new();
+    for stmt in inner {
+        body.push(parse_statement(stmt)?);
+    }
+
+    Ok(FunctionAst { name: name_pair.as_str().to_string(), params, body })
+}
+
+fn parse_statement(pair: Pair<'_, Rule>) -> Result<Statement, CompilerError> {
+    match pair.as_rule() {
+        Rule::statement => {
+            if let Some(inner) = pair.into_inner().next() {
+                parse_statement(inner)
+            } else {
+                Err(CompilerError::Unsupported("empty statement".to_string()))
+            }
+        }
+        Rule::variable_definition => {
+            let mut inner = pair.into_inner();
+            let type_name =
+                inner.next().ok_or_else(|| CompilerError::Unsupported("missing variable type".to_string()))?.as_str().to_string();
+
+            let mut modifiers = Vec::new();
+            while let Some(p) = inner.peek() {
+                if p.as_rule() != Rule::modifier {
+                    break;
+                }
+                modifiers.push(inner.next().expect("checked").as_str().to_string());
+            }
+
+            let ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing variable name".to_string()))?;
+            let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing variable initializer".to_string()))?;
+            let expr = parse_expression(expr_pair)?;
+            Ok(Statement::VariableDefinition { type_name, modifiers, name: ident.as_str().to_string(), expr })
+        }
+        Rule::tuple_assignment => {
+            let mut inner = pair.into_inner();
+            let left_type =
+                inner.next().ok_or_else(|| CompilerError::Unsupported("missing left tuple type".to_string()))?.as_str().to_string();
+            let left_ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing left tuple name".to_string()))?;
+            let right_type =
+                inner.next().ok_or_else(|| CompilerError::Unsupported("missing right tuple type".to_string()))?.as_str().to_string();
+            let right_ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing right tuple name".to_string()))?;
+            let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing tuple expression".to_string()))?;
+
+            let expr = parse_expression(expr_pair)?;
+            Ok(Statement::TupleAssignment {
+                left_type,
+                left_name: left_ident.as_str().to_string(),
+                right_type,
+                right_name: right_ident.as_str().to_string(),
+                expr,
+            })
+        }
+        Rule::assign_statement => {
+            let mut inner = pair.into_inner();
+            let ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing assignment name".to_string()))?;
+            let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing assignment expression".to_string()))?;
+            let expr = parse_expression(expr_pair)?;
+            Ok(Statement::Assign { name: ident.as_str().to_string(), expr })
+        }
+        Rule::time_op_statement => {
+            let mut inner = pair.into_inner();
+            let tx_var = inner.next().ok_or_else(|| CompilerError::Unsupported("missing time op variable".to_string()))?;
+            let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing time op expression".to_string()))?;
+            let message = inner.next().map(parse_require_message).transpose()?;
+
+            let expr = parse_expression(expr_pair)?;
+            let tx_var = match tx_var.as_str() {
+                "this.age" => TimeVar::ThisAge,
+                "tx.time" => TimeVar::TxTime,
+                other => return Err(CompilerError::Unsupported(format!("unsupported time variable: {other}"))),
+            };
+            Ok(Statement::TimeOp { tx_var, expr, message })
+        }
+        Rule::require_statement => {
+            let mut inner = pair.into_inner();
+            let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing require expression".to_string()))?;
+            let message = inner.next().map(parse_require_message).transpose()?;
+            let expr = parse_expression(expr_pair)?;
+            Ok(Statement::Require { expr, message })
+        }
+        Rule::if_statement => {
+            let mut inner = pair.into_inner();
+            let cond_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing if condition".to_string()))?;
+            let cond_expr = parse_expression(cond_pair)?;
+            let then_block = inner.next().ok_or_else(|| CompilerError::Unsupported("missing if block".to_string()))?;
+            let then_branch = parse_block(then_block)?;
+            let else_branch = inner.next().map(parse_block).transpose()?;
+            Ok(Statement::If { condition: cond_expr, then_branch, else_branch })
+        }
+        Rule::for_statement => {
+            let mut inner = pair.into_inner();
+            let ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop identifier".to_string()))?;
+            let start_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop start".to_string()))?;
+            let end_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop end".to_string()))?;
+            let block_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop body".to_string()))?;
+
+            let start_expr = parse_expression(start_pair)?;
+            let end_expr = parse_expression(end_pair)?;
+            let body = parse_block(block_pair)?;
+
+            Ok(Statement::For { ident: ident.as_str().to_string(), start: start_expr, end: end_expr, body })
+        }
+        Rule::yield_statement => {
+            let mut inner = pair.into_inner();
+            let list_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing yield arguments".to_string()))?;
+            let args = parse_expression_list(list_pair)?;
+            if args.len() != 1 {
+                return Err(CompilerError::Unsupported("yield() expects a single argument".to_string()));
+            }
+            Ok(Statement::Yield { expr: args[0].clone() })
+        }
+        Rule::console_statement => {
+            let mut inner = pair.into_inner();
+            let list_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing console arguments".to_string()))?;
+            let args = parse_console_parameter_list(list_pair)?;
+            Ok(Statement::Console { args })
+        }
+        _ => Err(CompilerError::Unsupported(format!("unexpected statement: {:?}", pair.as_rule()))),
+    }
+}
+
+fn parse_block(pair: Pair<'_, Rule>) -> Result<Vec<Statement>, CompilerError> {
+    match pair.as_rule() {
+        Rule::block => {
+            let mut statements = Vec::new();
+            for stmt in pair.into_inner() {
+                statements.push(parse_statement(stmt)?);
+            }
+            Ok(statements)
+        }
+        _ => Ok(vec![parse_statement(pair)?]),
+    }
+}
+
+fn parse_console_parameter_list(pair: Pair<'_, Rule>) -> Result<Vec<ConsoleArg>, CompilerError> {
+    let mut args = Vec::new();
+    for param in pair.into_inner() {
+        let value = if param.as_rule() == Rule::console_parameter { single_inner(param)? } else { param };
+        match value.as_rule() {
+            Rule::Identifier => args.push(ConsoleArg::Identifier(value.as_str().to_string())),
+            Rule::literal => args.push(ConsoleArg::Literal(parse_literal(single_inner(value)?)?)),
+            _ => return Err(CompilerError::Unsupported("console.log arguments not supported".to_string())),
+        }
+    }
+    Ok(args)
+}
+
+fn parse_require_message(pair: Pair<'_, Rule>) -> Result<String, CompilerError> {
+    let inner = single_inner(pair)?;
+    match parse_string_literal(inner)? {
+        Expr::String(value) => Ok(value),
+        _ => Err(CompilerError::Unsupported("require message must be a string literal".to_string())),
+    }
 }
 
 fn parse_expression(pair: Pair<'_, Rule>) -> Result<Expr, CompilerError> {

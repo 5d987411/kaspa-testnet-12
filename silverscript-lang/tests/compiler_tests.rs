@@ -10,7 +10,7 @@ use kaspa_txscript::covenants::CovenantsContext;
 use kaspa_txscript::opcodes::codes::*;
 use kaspa_txscript::script_builder::ScriptBuilder;
 use kaspa_txscript::{EngineCtx, EngineFlags, SeqCommitAccessor, TxScriptEngine};
-use silverscript_lang::compiler::{CompileOptions, compile_contract, function_branch_index};
+use silverscript_lang::compiler::{CompileOptions, CompiledContract, compile_contract, function_branch_index};
 
 fn run_script_with_selector(script: Vec<u8>, selector: i64) -> Result<(), kaspa_txscript_errors::TxScriptError> {
     let sigscript = ScriptBuilder::new().add_i64(selector).unwrap().drain();
@@ -162,8 +162,8 @@ fn build_covenant_opcode_tx(sigscript: Vec<u8>, covenant_id_a: Hash, covenant_id
     (tx, entries)
 }
 
-fn selector_for(source: &str, function_name: &str) -> i64 {
-    function_branch_index(source, function_name).expect("selector resolved")
+fn selector_for(compiled: &CompiledContract, function_name: &str) -> i64 {
+    function_branch_index(&compiled.ast, function_name).expect("selector resolved")
 }
 
 fn wrap_with_dispatch(body: Vec<u8>, selector: i64) -> Vec<u8> {
@@ -193,7 +193,7 @@ fn compiles_basic_arithmetic_and_verifies() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
 
     let body = ScriptBuilder::new()
         .add_i64(1)
@@ -231,7 +231,7 @@ fn compiles_contract_constants_and_verifies() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
 
     let body = ScriptBuilder::new()
         .add_i64(1_000_000)
@@ -254,7 +254,7 @@ fn compiles_contract_constants_and_verifies() {
 
 fn assert_compiled_body(source: &str, body: Vec<u8>) {
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
     let expected = wrap_with_dispatch(body, selector);
     assert_eq!(compiled.script, expected);
 }
@@ -1029,7 +1029,7 @@ fn executes_opcode_builtins_basic() {
 
     for (name, source) in cases {
         let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-        let selector = selector_for(source, "main");
+        let selector = selector_for(&compiled, "main");
         let sigscript = ScriptBuilder::new().add_i64(selector).unwrap().drain();
         let (tx, entries) = build_basic_opcode_tx(sigscript);
         let result = run_script_with_tx_and_covenants(compiled.script, tx, entries, None);
@@ -1054,7 +1054,7 @@ fn executes_opcode_builtins_covenants() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
     let sigscript = ScriptBuilder::new().add_i64(selector).unwrap().drain();
     let covenant_id_a = Hash::from_bytes(*b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     let covenant_id_b = Hash::from_bytes(*b"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB");
@@ -1090,7 +1090,7 @@ fn executes_opcode_chainblock_seq_commit() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
     let sigscript = ScriptBuilder::new().add_i64(selector).unwrap().drain();
     let (tx, entries) = build_basic_opcode_tx(sigscript);
 
@@ -1116,7 +1116,7 @@ fn compiles_if_else_and_verifies() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
 
     let body = ScriptBuilder::new()
         .add_i64(1)
@@ -1160,7 +1160,7 @@ fn compiles_time_op_csv_and_verifies() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
 
     let body = ScriptBuilder::new().add_i64(10).unwrap().add_op(OpCheckSequenceVerify).unwrap().add_op(OpTrue).unwrap().drain();
     let expected = wrap_with_dispatch(body, selector);
@@ -1182,7 +1182,7 @@ fn compiles_reused_variables_and_verifies() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
 
     let body = ScriptBuilder::new()
         .add_i64(2)
@@ -1234,7 +1234,7 @@ fn compiles_sigscript_inputs_and_verifies() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
     let sigscript = ScriptBuilder::new().add_i64(3).unwrap().add_i64(4).unwrap().add_i64(selector).unwrap().drain();
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
@@ -1252,7 +1252,7 @@ fn compiles_sigscript_reused_inputs_and_verifies() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
     let sigscript = ScriptBuilder::new().add_i64(3).unwrap().add_i64(selector).unwrap().drain();
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
@@ -1270,7 +1270,7 @@ fn compiles_sigscript_inputs_and_fails_on_wrong_sum() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
     let sigscript = ScriptBuilder::new().add_i64(2).unwrap().add_i64(4).unwrap().add_i64(selector).unwrap().drain();
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
@@ -1288,7 +1288,7 @@ fn compiles_sigscript_reused_inputs_and_fails_on_wrong_value() {
     "#;
 
     let compiled = compile_contract(source, CompileOptions::default()).expect("compile succeeds");
-    let selector = selector_for(source, "main");
+    let selector = selector_for(&compiled, "main");
     let sigscript = ScriptBuilder::new().add_i64(4).unwrap().add_i64(selector).unwrap().drain();
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
