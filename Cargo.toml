@@ -1,0 +1,24 @@
+[workspace]
+members = ["silverscript-lang"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Unknown <unknown@example.com>"]
+repository = ""
+rust-version = "1.76"
+
+[workspace.dependencies]
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", branch = "covpp-reset1" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa", branch = "covpp-reset1" }
+kaspa-txscript-errors = { git = "https://github.com/kaspanet/rusty-kaspa", branch = "covpp-reset1" }
+blake2b_simd = "1.0.2"
+rand = "0.8.5"
+secp256k1 = { version = "0.29.0", features = [
+    "global-context",
+    "rand-std",
+    "serde",
+] }
+thiserror = "1.0.61"
