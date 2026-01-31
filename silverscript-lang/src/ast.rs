@@ -20,6 +20,8 @@ pub struct ContractAst {
 pub struct FunctionAst {
     pub name: String,
     pub params: Vec<ParamAst>,
+    #[serde(default)]
+    pub return_types: Vec<String>,
     pub body: Vec<Statement>,
 }
 
@@ -35,12 +37,15 @@ pub enum Statement {
     VariableDefinition { type_name: String, modifiers: Vec<String>, name: String, expr: Option<Expr> },
     TupleAssignment { left_type: String, left_name: String, right_type: String, right_name: String, expr: Expr },
     ArrayPush { name: String, expr: Expr },
+    FunctionCall { name: String, args: Vec<Expr> },
+    FunctionCallAssign { bindings: Vec<ParamAst>, name: String, args: Vec<Expr> },
     Assign { name: String, expr: Expr },
     TimeOp { tx_var: TimeVar, expr: Expr, message: Option<String> },
     Require { expr: Expr, message: Option<String> },
     If { condition: Expr, then_branch: Vec<Statement>, else_branch: Option<Vec<Statement>> },
     For { ident: String, start: Expr, end: Expr, body: Vec<Statement> },
     Yield { expr: Expr },
+    Return { exprs: Vec<Expr> },
     Console { args: Vec<ConsoleArg> },
 }
 
@@ -170,6 +175,13 @@ pub enum IntrospectionKind {
     OutputLockingBytecode,
 }
 
+fn validate_user_identifier(name: &str) -> Result<(), CompilerError> {
+    if name.starts_with("__") {
+        return Err(CompilerError::Unsupported("identifier cannot start with '__'".to_string()));
+    }
+    Ok(())
+}
+
 pub fn parse_contract_ast(source: &str) -> Result<ContractAst, CompilerError> {
     let mut pairs = SilverScriptParser::parse(Rule::source_file, source)?;
     let source_pair = pairs.next().ok_or_else(|| CompilerError::Unsupported("empty source".to_string()))?;
@@ -209,6 +221,7 @@ fn parse_contract_definition(pair: Pair<'_, Rule>) -> Result<ContractAst, Compil
                         const_inner.next().ok_or_else(|| CompilerError::Unsupported("missing constant type".to_string()))?;
                     let name_pair =
                         const_inner.next().ok_or_else(|| CompilerError::Unsupported("missing constant name".to_string()))?;
+                    validate_user_identifier(name_pair.as_str())?;
                     let expr_pair =
                         const_inner.next().ok_or_else(|| CompilerError::Unsupported("missing constant initializer".to_string()))?;
                     let expr = parse_expression(expr_pair)?;
@@ -227,13 +240,20 @@ fn parse_function_definition(pair: Pair<'_, Rule>) -> Result<FunctionAst, Compil
     let name_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing function name".to_string()))?;
     let params_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing function parameters".to_string()))?;
     let params = parse_typed_parameter_list(params_pair)?;
+    let mut return_types = Vec::new();
+    if let Some(next) = inner.peek() {
+        if next.as_rule() == Rule::return_type_list {
+            let return_pair = inner.next().expect("checked");
+            return_types = parse_return_type_list(return_pair)?;
+        }
+    }
 
     let mut body = Vec::new();
     for stmt in inner {
         body.push(parse_statement(stmt)?);
     }
 
-    Ok(FunctionAst { name: name_pair.as_str().to_string(), params, body })
+    Ok(FunctionAst { name: name_pair.as_str().to_string(), params, return_types, body })
 }
 
 fn parse_statement(pair: Pair<'_, Rule>) -> Result<Statement, CompilerError> {
@@ -263,6 +283,7 @@ fn parse_statement(pair: Pair<'_, Rule>) -> Result<Statement, CompilerError> {
             }
 
             let ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing variable name".to_string()))?;
+            validate_user_identifier(ident.as_str())?;
             let expr = inner.next().map(parse_expression).transpose()?;
             Ok(Statement::VariableDefinition { type_name, modifiers, name: ident.as_str().to_string(), expr })
         }
@@ -274,6 +295,8 @@ fn parse_statement(pair: Pair<'_, Rule>) -> Result<Statement, CompilerError> {
             let right_type =
                 inner.next().ok_or_else(|| CompilerError::Unsupported("missing right tuple type".to_string()))?.as_str().to_string();
             let right_ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing right tuple name".to_string()))?;
+            validate_user_identifier(left_ident.as_str())?;
+            validate_user_identifier(right_ident.as_str())?;
             let expr_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing tuple expression".to_string()))?;
 
             let expr = parse_expression(expr_pair)?;
@@ -329,9 +352,47 @@ fn parse_statement(pair: Pair<'_, Rule>) -> Result<Statement, CompilerError> {
             let else_branch = inner.next().map(parse_block).transpose()?;
             Ok(Statement::If { condition: cond_expr, then_branch, else_branch })
         }
+        Rule::call_statement => {
+            let mut inner = pair.into_inner();
+            let call_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing function call".to_string()))?;
+            match parse_function_call(call_pair)? {
+                Expr::Call { name, args } => Ok(Statement::FunctionCall { name, args }),
+                _ => Err(CompilerError::Unsupported("function call expected".to_string())),
+            }
+        }
+        Rule::function_call_assignment => {
+            let mut bindings = Vec::new();
+            let mut call_pair = None;
+            for item in pair.into_inner() {
+                if item.as_rule() == Rule::typed_binding {
+                    let mut inner = item.into_inner();
+                    let type_name = inner
+                        .next()
+                        .ok_or_else(|| CompilerError::Unsupported("missing binding type".to_string()))?
+                        .as_str()
+                        .trim()
+                        .to_string();
+                    let name = inner
+                        .next()
+                        .ok_or_else(|| CompilerError::Unsupported("missing binding name".to_string()))?
+                        .as_str()
+                        .to_string();
+                    validate_user_identifier(&name)?;
+                    bindings.push(ParamAst { type_name, name });
+                } else if item.as_rule() == Rule::function_call {
+                    call_pair = Some(item);
+                }
+            }
+            let call_pair = call_pair.ok_or_else(|| CompilerError::Unsupported("missing function call".to_string()))?;
+            match parse_function_call(call_pair)? {
+                Expr::Call { name, args } => Ok(Statement::FunctionCallAssign { bindings, name, args }),
+                _ => Err(CompilerError::Unsupported("function call expected".to_string())),
+            }
+        }
         Rule::for_statement => {
             let mut inner = pair.into_inner();
             let ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop identifier".to_string()))?;
+            validate_user_identifier(ident.as_str())?;
             let start_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop start".to_string()))?;
             let end_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop end".to_string()))?;
             let block_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing for loop body".to_string()))?;
@@ -350,6 +411,15 @@ fn parse_statement(pair: Pair<'_, Rule>) -> Result<Statement, CompilerError> {
                 return Err(CompilerError::Unsupported("yield() expects a single argument".to_string()));
             }
             Ok(Statement::Yield { expr: args[0].clone() })
+        }
+        Rule::return_statement => {
+            let mut inner = pair.into_inner();
+            let list_pair = inner.next().ok_or_else(|| CompilerError::Unsupported("missing return arguments".to_string()))?;
+            let args = parse_expression_list(list_pair)?;
+            if args.is_empty() {
+                return Err(CompilerError::Unsupported("return() expects at least one argument".to_string()));
+            }
+            Ok(Statement::Return { exprs: args })
         }
         Rule::console_statement => {
             let mut inner = pair.into_inner();
@@ -523,9 +593,20 @@ fn parse_typed_parameter_list(pair: Pair<'_, Rule>) -> Result<Vec<ParamAst>, Com
         let type_name =
             inner.next().ok_or_else(|| CompilerError::Unsupported("missing parameter type".to_string()))?.as_str().trim().to_string();
         let ident = inner.next().ok_or_else(|| CompilerError::Unsupported("missing parameter name".to_string()))?.as_str().to_string();
+        validate_user_identifier(&ident)?;
         params.push(ParamAst { type_name, name: ident });
     }
     Ok(params)
+}
+
+fn parse_return_type_list(pair: Pair<'_, Rule>) -> Result<Vec<String>, CompilerError> {
+    let mut types = Vec::new();
+    for item in pair.into_inner() {
+        if item.as_rule() == Rule::type_name {
+            types.push(item.as_str().trim().to_string());
+        }
+    }
+    Ok(types)
 }
 
 fn parse_primary(pair: Pair<'_, Rule>) -> Result<Expr, CompilerError> {

@@ -95,8 +95,11 @@ pub fn compile_contract_ast(
     }
 
     let mut compiled_functions = Vec::new();
-    for func in &contract.functions {
-        compiled_functions.push(compile_function(func, &constants, options)?);
+    let functions_map = contract.functions.iter().cloned().map(|func| (func.name.clone(), func)).collect::<HashMap<_, _>>();
+    let function_order =
+        contract.functions.iter().enumerate().map(|(index, func)| (func.name.clone(), index)).collect::<HashMap<_, _>>();
+    for (index, func) in contract.functions.iter().enumerate() {
+        compiled_functions.push(compile_function(func, index, &constants, options, &functions_map, &function_order)?);
     }
 
     let script = if options.without_selector {
@@ -210,6 +213,60 @@ fn fixed_type_size(type_name: &str) -> Option<i64> {
 
 fn array_element_size(type_name: &str) -> Option<i64> {
     array_element_type(type_name).and_then(fixed_type_size)
+}
+
+fn contains_return(stmt: &Statement) -> bool {
+    match stmt {
+        Statement::Return { .. } => true,
+        Statement::If { then_branch, else_branch, .. } => {
+            then_branch.iter().any(contains_return) || else_branch.as_ref().is_some_and(|branch| branch.iter().any(contains_return))
+        }
+        Statement::For { body, .. } => body.iter().any(contains_return),
+        _ => false,
+    }
+}
+
+fn contains_yield(stmt: &Statement) -> bool {
+    match stmt {
+        Statement::Yield { .. } => true,
+        Statement::If { then_branch, else_branch, .. } => {
+            then_branch.iter().any(contains_yield) || else_branch.as_ref().is_some_and(|branch| branch.iter().any(contains_yield))
+        }
+        Statement::For { body, .. } => body.iter().any(contains_yield),
+        _ => false,
+    }
+}
+
+fn validate_return_types(exprs: &[Expr], return_types: &[String], types: &HashMap<String, String>) -> Result<(), CompilerError> {
+    if return_types.is_empty() {
+        return Err(CompilerError::Unsupported("return requires function return types".to_string()));
+    }
+    if return_types.len() != exprs.len() {
+        return Err(CompilerError::Unsupported("return values count must match function return types".to_string()));
+    }
+    for (expr, type_name) in exprs.iter().zip(return_types.iter()) {
+        if !expr_matches_return_type(expr, type_name, types) {
+            return Err(CompilerError::Unsupported(format!("return value expects {type_name}")));
+        }
+    }
+    Ok(())
+}
+
+fn expr_matches_type_with_env(expr: &Expr, type_name: &str, types: &HashMap<String, String>) -> bool {
+    match expr {
+        Expr::Identifier(name) => types.get(name).is_some_and(|t| t == type_name),
+        Expr::Array(values) => is_array_type(type_name) && array_literal_matches_type(values, type_name),
+        _ => expr_matches_type(expr, type_name),
+    }
+}
+
+fn expr_matches_return_type(expr: &Expr, type_name: &str, types: &HashMap<String, String>) -> bool {
+    match expr {
+        Expr::Identifier(name) => types.get(name).is_some_and(|t| t == type_name),
+        Expr::Array(values) => is_array_type(type_name) && array_literal_matches_type(values, type_name),
+        Expr::Int(_) | Expr::Bool(_) | Expr::Bytes(_) | Expr::String(_) => expr_matches_type(expr, type_name),
+        _ => true,
+    }
 }
 
 impl CompiledContract {
@@ -339,8 +396,11 @@ pub fn function_branch_index(contract: &ContractAst, function_name: &str) -> Res
 
 fn compile_function(
     function: &FunctionAst,
+    function_index: usize,
     constants: &HashMap<String, Expr>,
     options: CompileOptions,
+    functions: &HashMap<String, FunctionAst>,
+    function_order: &HashMap<String, usize>,
 ) -> Result<(String, Vec<u8>), CompilerError> {
     let param_count = function.params.len();
     let params = function
@@ -356,12 +416,58 @@ fn compile_function(
             return Err(CompilerError::Unsupported(format!("array element type must have known size: {}", param.type_name)));
         }
     }
+    for return_type in &function.return_types {
+        if is_array_type(return_type) && array_element_size(return_type).is_none() {
+            return Err(CompilerError::Unsupported(format!("array element type must have known size: {return_type}")));
+        }
+    }
     let mut env: HashMap<String, Expr> = constants.clone();
     let mut builder = ScriptBuilder::new();
     let mut yields: Vec<Expr> = Vec::new();
 
-    for stmt in &function.body {
-        compile_statement(stmt, &mut env, &params, &mut types, &mut builder, options, constants, &mut yields)?;
+    let has_return = function.body.iter().any(contains_return);
+    if has_return {
+        if !matches!(function.body.last(), Some(Statement::Return { .. })) {
+            return Err(CompilerError::Unsupported("return statement must be the last statement".to_string()));
+        }
+        if function.body[..function.body.len() - 1].iter().any(contains_return) {
+            return Err(CompilerError::Unsupported("return statement must be the last statement".to_string()));
+        }
+        if function.body.iter().any(contains_yield) {
+            return Err(CompilerError::Unsupported("return cannot be combined with yield".to_string()));
+        }
+        if function.return_types.is_empty() {
+            return Err(CompilerError::Unsupported("return requires function return types".to_string()));
+        }
+    }
+
+    let body_len = function.body.len();
+    for (index, stmt) in function.body.iter().enumerate() {
+        if matches!(stmt, Statement::Return { .. }) {
+            if index != body_len - 1 {
+                return Err(CompilerError::Unsupported("return statement must be the last statement".to_string()));
+            }
+            let Statement::Return { exprs } = stmt else { unreachable!() };
+            validate_return_types(exprs, &function.return_types, &types)?;
+            for expr in exprs {
+                let resolved = resolve_expr(expr.clone(), &env, &mut HashSet::new())?;
+                yields.push(resolved);
+            }
+            continue;
+        }
+        compile_statement(
+            stmt,
+            &mut env,
+            &params,
+            &mut types,
+            &mut builder,
+            options,
+            constants,
+            functions,
+            function_order,
+            function_index,
+            &mut yields,
+        )?;
     }
 
     let yield_count = yields.len();
@@ -384,6 +490,7 @@ fn compile_function(
     Ok((function.name.clone(), builder.drain()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_statement(
     stmt: &Statement,
     env: &mut HashMap<String, Expr>,
@@ -392,6 +499,9 @@ fn compile_statement(
     builder: &mut ScriptBuilder,
     options: CompileOptions,
     contract_constants: &HashMap<String, Expr>,
+    functions: &HashMap<String, FunctionAst>,
+    function_order: &HashMap<String, usize>,
+    function_index: usize,
     yields: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
     match stmt {
@@ -467,17 +577,34 @@ fn compile_statement(
             builder,
             options,
             contract_constants,
+            functions,
+            function_order,
+            function_index,
             yields,
         ),
-        Statement::For { ident, start, end, body } => {
-            compile_for_statement(ident, start, end, body, env, params, types, builder, options, contract_constants, yields)
-        }
+        Statement::For { ident, start, end, body } => compile_for_statement(
+            ident,
+            start,
+            end,
+            body,
+            env,
+            params,
+            types,
+            builder,
+            options,
+            contract_constants,
+            functions,
+            function_order,
+            function_index,
+            yields,
+        ),
         Statement::Yield { expr } => {
             let mut visiting = HashSet::new();
             let resolved = resolve_expr(expr.clone(), env, &mut visiting)?;
             yields.push(resolved);
             Ok(())
         }
+        Statement::Return { .. } => Err(CompilerError::Unsupported("return statement must be the last statement".to_string())),
         Statement::TupleAssignment { left_name, right_name, expr, .. } => match expr.clone() {
             Expr::Split { source, index, .. } => {
                 env.insert(left_name.clone(), Expr::Split { source: source.clone(), index: index.clone(), part: SplitPart::Left });
@@ -486,6 +613,63 @@ fn compile_statement(
             }
             _ => Err(CompilerError::Unsupported("tuple assignment only supports split()".to_string())),
         },
+        Statement::FunctionCall { name, args } => {
+            let returns = compile_inline_call(
+                name,
+                args,
+                types,
+                env,
+                builder,
+                options,
+                contract_constants,
+                functions,
+                function_order,
+                function_index,
+            )?;
+            if !returns.is_empty() {
+                let mut stack_depth = 0i64;
+                for expr in returns {
+                    compile_expr(&expr, env, params, types, builder, options, &mut HashSet::new(), &mut stack_depth)?;
+                    builder.add_op(OpDrop)?;
+                    stack_depth -= 1;
+                }
+            }
+            Ok(())
+        }
+        Statement::FunctionCallAssign { bindings, name, args } => {
+            let function = functions.get(name).ok_or_else(|| CompilerError::Unsupported(format!("function '{}' not found", name)))?;
+            if function.return_types.is_empty() {
+                return Err(CompilerError::Unsupported("function has no return types".to_string()));
+            }
+            if function.return_types.len() != bindings.len() {
+                return Err(CompilerError::Unsupported("return values count must match function return types".to_string()));
+            }
+            for (binding, return_type) in bindings.iter().zip(function.return_types.iter()) {
+                if binding.type_name != *return_type {
+                    return Err(CompilerError::Unsupported("function return types must match binding types".to_string()));
+                }
+            }
+            let returns = compile_inline_call(
+                name,
+                args,
+                types,
+                env,
+                builder,
+                options,
+                contract_constants,
+                functions,
+                function_order,
+                function_index,
+            )?;
+            if returns.len() != bindings.len() {
+                return Err(CompilerError::Unsupported("return values count must match function return types".to_string()));
+            }
+            for (binding, expr) in bindings.iter().zip(returns.into_iter()) {
+                env.insert(binding.name.clone(), expr);
+                types.insert(binding.name.clone(), binding.type_name.clone());
+            }
+            Ok(())
+        }
         Statement::Assign { name, expr } => {
             if let Some(type_name) = types.get(name) {
                 if is_array_type(type_name) {
@@ -515,6 +699,109 @@ fn compile_statement(
     }
 }
 
+fn compile_inline_call(
+    name: &str,
+    args: &[Expr],
+    caller_types: &mut HashMap<String, String>,
+    caller_env: &mut HashMap<String, Expr>,
+    builder: &mut ScriptBuilder,
+    options: CompileOptions,
+    contract_constants: &HashMap<String, Expr>,
+    functions: &HashMap<String, FunctionAst>,
+    function_order: &HashMap<String, usize>,
+    caller_index: usize,
+) -> Result<Vec<Expr>, CompilerError> {
+    let function = functions.get(name).ok_or_else(|| CompilerError::Unsupported(format!("function '{}' not found", name)))?;
+    let callee_index =
+        function_order.get(name).copied().ok_or_else(|| CompilerError::Unsupported(format!("function '{}' not found", name)))?;
+    if callee_index >= caller_index {
+        return Err(CompilerError::Unsupported("functions may only call earlier-defined functions".to_string()));
+    }
+
+    if function.params.len() != args.len() {
+        return Err(CompilerError::Unsupported(format!("function '{}' expects {} arguments", name, function.params.len())));
+    }
+    for (param, arg) in function.params.iter().zip(args.iter()) {
+        if !expr_matches_type_with_env(arg, &param.type_name, caller_types) {
+            return Err(CompilerError::Unsupported(format!("function argument '{}' expects {}", param.name, param.type_name)));
+        }
+    }
+
+    let mut types = function.params.iter().map(|param| (param.name.clone(), param.type_name.clone())).collect::<HashMap<_, _>>();
+    for param in &function.params {
+        if is_array_type(&param.type_name) && array_element_size(&param.type_name).is_none() {
+            return Err(CompilerError::Unsupported(format!("array element type must have known size: {}", param.type_name)));
+        }
+    }
+
+    let mut env: HashMap<String, Expr> = contract_constants.clone();
+    for (index, (param, arg)) in function.params.iter().zip(args.iter()).enumerate() {
+        let resolved = resolve_expr(arg.clone(), caller_env, &mut HashSet::new())?;
+        let temp_name = format!("__arg_{name}_{index}");
+        env.insert(temp_name.clone(), resolved.clone());
+        types.insert(temp_name.clone(), param.type_name.clone());
+        env.insert(param.name.clone(), Expr::Identifier(temp_name.clone()));
+        caller_env.insert(temp_name.clone(), resolved);
+        caller_types.insert(temp_name, param.type_name.clone());
+    }
+
+    let has_return = function.body.iter().any(contains_return);
+    if has_return {
+        if !matches!(function.body.last(), Some(Statement::Return { .. })) {
+            return Err(CompilerError::Unsupported("return statement must be the last statement".to_string()));
+        }
+        if function.body[..function.body.len() - 1].iter().any(contains_return) {
+            return Err(CompilerError::Unsupported("return statement must be the last statement".to_string()));
+        }
+        if function.body.iter().any(contains_yield) {
+            return Err(CompilerError::Unsupported("return cannot be combined with yield".to_string()));
+        }
+    }
+
+    let mut yields: Vec<Expr> = Vec::new();
+    let params = HashMap::new();
+    let body_len = function.body.len();
+    for (index, stmt) in function.body.iter().enumerate() {
+        if matches!(stmt, Statement::Return { .. }) {
+            if index != body_len - 1 {
+                return Err(CompilerError::Unsupported("return statement must be the last statement".to_string()));
+            }
+            let Statement::Return { exprs } = stmt else { unreachable!() };
+            validate_return_types(exprs, &function.return_types, &types)?;
+            for expr in exprs {
+                let resolved = resolve_expr(expr.clone(), &env, &mut HashSet::new())?;
+                yields.push(resolved);
+            }
+            continue;
+        }
+        compile_statement(
+            stmt,
+            &mut env,
+            &params,
+            &mut types,
+            builder,
+            options,
+            contract_constants,
+            functions,
+            function_order,
+            callee_index,
+            &mut yields,
+        )?;
+    }
+
+    for (name, value) in env.iter() {
+        if name.starts_with("__arg_") {
+            if let Some(type_name) = types.get(name) {
+                caller_types.entry(name.clone()).or_insert_with(|| type_name.clone());
+            }
+            caller_env.entry(name.clone()).or_insert_with(|| value.clone());
+        }
+    }
+
+    Ok(yields)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn compile_if_statement(
     condition: &Expr,
     then_branch: &[Statement],
@@ -525,6 +812,9 @@ fn compile_if_statement(
     builder: &mut ScriptBuilder,
     options: CompileOptions,
     contract_constants: &HashMap<String, Expr>,
+    functions: &HashMap<String, FunctionAst>,
+    function_order: &HashMap<String, usize>,
+    function_index: usize,
     yields: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
     let mut stack_depth = 0i64;
@@ -534,13 +824,37 @@ fn compile_if_statement(
     let original_env = env.clone();
     let mut then_env = original_env.clone();
     let mut then_types = types.clone();
-    compile_block(then_branch, &mut then_env, params, &mut then_types, builder, options, contract_constants, yields)?;
+    compile_block(
+        then_branch,
+        &mut then_env,
+        params,
+        &mut then_types,
+        builder,
+        options,
+        contract_constants,
+        functions,
+        function_order,
+        function_index,
+        yields,
+    )?;
 
     let mut else_env = original_env.clone();
     if let Some(else_branch) = else_branch {
         builder.add_op(OpElse)?;
         let mut else_types = types.clone();
-        compile_block(else_branch, &mut else_env, params, &mut else_types, builder, options, contract_constants, yields)?;
+        compile_block(
+            else_branch,
+            &mut else_env,
+            params,
+            &mut else_types,
+            builder,
+            options,
+            contract_constants,
+            functions,
+            function_order,
+            function_index,
+            yields,
+        )?;
     }
 
     builder.add_op(OpEndIf)?;
@@ -600,6 +914,7 @@ fn compile_time_op_statement(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_block(
     statements: &[Statement],
     env: &mut HashMap<String, Expr>,
@@ -608,10 +923,25 @@ fn compile_block(
     builder: &mut ScriptBuilder,
     options: CompileOptions,
     contract_constants: &HashMap<String, Expr>,
+    functions: &HashMap<String, FunctionAst>,
+    function_order: &HashMap<String, usize>,
+    function_index: usize,
     yields: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
     for stmt in statements {
-        compile_statement(stmt, env, params, types, builder, options, contract_constants, yields)?;
+        compile_statement(
+            stmt,
+            env,
+            params,
+            types,
+            builder,
+            options,
+            contract_constants,
+            functions,
+            function_order,
+            function_index,
+            yields,
+        )?;
     }
     Ok(())
 }
@@ -628,6 +958,9 @@ fn compile_for_statement(
     builder: &mut ScriptBuilder,
     options: CompileOptions,
     contract_constants: &HashMap<String, Expr>,
+    functions: &HashMap<String, FunctionAst>,
+    function_order: &HashMap<String, usize>,
+    function_index: usize,
     yields: &mut Vec<Expr>,
 ) -> Result<(), CompilerError> {
     let start = eval_const_int(start_expr, contract_constants)?;
@@ -640,7 +973,19 @@ fn compile_for_statement(
     let previous = env.get(&name).cloned();
     for value in start..end {
         env.insert(name.clone(), Expr::Int(value));
-        compile_block(body, env, params, types, builder, options, contract_constants, yields)?;
+        compile_block(
+            body,
+            env,
+            params,
+            types,
+            builder,
+            options,
+            contract_constants,
+            functions,
+            function_order,
+            function_index,
+            yields,
+        )?;
     }
 
     match previous {
@@ -693,6 +1038,9 @@ fn eval_const_int(expr: &Expr, constants: &HashMap<String, Expr>) -> Result<i64,
 fn resolve_expr(expr: Expr, env: &HashMap<String, Expr>, visiting: &mut HashSet<String>) -> Result<Expr, CompilerError> {
     match expr {
         Expr::Identifier(name) => {
+            if name.starts_with("__arg_") {
+                return Ok(Expr::Identifier(name));
+            }
             if let Some(value) = env.get(&name) {
                 if !visiting.insert(name.clone()) {
                     return Err(CompilerError::CyclicIdentifier(name));
@@ -1266,16 +1614,24 @@ fn compile_expr(
             Ok(())
         }
         Expr::ArrayIndex { source, index } => {
-            let element_type = match source.as_ref() {
-                Expr::Identifier(name) => types
-                    .get(name)
-                    .and_then(|t| array_element_type(t))
-                    .ok_or_else(|| CompilerError::Unsupported("array index requires array identifier".to_string()))?,
+            let resolved_source = match source.as_ref() {
+                Expr::Identifier(_) => source.as_ref().clone(),
+                _ => resolve_expr(*source.clone(), env, visiting)?,
+            };
+            let element_type = match &resolved_source {
+                Expr::Identifier(name) => {
+                    let type_name = types.get(name).or_else(|| {
+                        env.get(name).and_then(|value| if let Expr::Identifier(inner) = value { types.get(inner) } else { None })
+                    });
+                    type_name
+                        .and_then(|t| array_element_type(t))
+                        .ok_or_else(|| CompilerError::Unsupported(format!("array index requires array identifier: {name}")))?
+                }
                 _ => return Err(CompilerError::Unsupported("array index requires array identifier".to_string())),
             };
             let element_size = fixed_type_size(element_type)
                 .ok_or_else(|| CompilerError::Unsupported("array element type must have known size".to_string()))?;
-            compile_expr(source, env, params, types, builder, options, visiting, stack_depth)?;
+            compile_expr(&resolved_source, env, params, types, builder, options, visiting, stack_depth)?;
             compile_expr(index, env, params, types, builder, options, visiting, stack_depth)?;
             builder.add_i64(element_size)?;
             *stack_depth += 1;

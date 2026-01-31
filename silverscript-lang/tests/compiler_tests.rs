@@ -206,6 +206,28 @@ fn build_sig_script_rejects_wrong_argument_type() {
 }
 
 #[test]
+fn rejects_double_underscore_variable_names() {
+    let source = r#"
+        contract Bad() {
+            function main() {
+                int __tmp = 1;
+                require(__tmp == 1);
+            }
+        }
+    "#;
+    assert!(parse_contract_ast(source).is_err());
+
+    let source = r#"
+        contract Bad(int __arg) {
+            function main() {
+                require(__arg == 1);
+            }
+        }
+    "#;
+    assert!(parse_contract_ast(source).is_err());
+}
+
+#[test]
 fn build_sig_script_rejects_mismatched_bytes_length() {
     let source = r#"
         contract C() {
@@ -246,6 +268,252 @@ fn build_sig_script_omits_selector_without_selector() {
 
     let expected = ScriptBuilder::new().add_i64(1).unwrap().add_data(&[2u8; 4]).unwrap().drain();
     assert_eq!(sigscript, expected);
+}
+
+#[test]
+fn compiles_function_call_assignment_and_verifies() {
+    let source = r#"
+        contract Calls() {
+            function f(int a, int b) : (int, int) {
+                return(a + b, a * b);
+            }
+
+            function main() {
+                (int sum, int prod) = f(2, 3);
+                require(sum == 5);
+                require(prod == 6);
+            }
+        }
+    "#;
+
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+    let selector = selector_for(&compiled, "main");
+    let result = run_script_with_selector(compiled.script, selector);
+    assert!(result.is_ok(), "array/loop/function-call example failed: {}", result.unwrap_err());
+}
+
+#[test]
+fn compiles_function_call_statement_drops_returns() {
+    let source = r#"
+        contract Calls() {
+            function f(int a) : (int) {
+                require(a >= 0);
+                return(a + 1);
+            }
+
+            function main() {
+                f(2);
+            }
+        }
+    "#;
+
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+    let selector = selector_for(&compiled, "main");
+    assert!(compiled.script.windows(2).any(|window| window == [OpAdd, OpDrop]), "expected return value to be dropped");
+    assert!(run_script_with_selector(compiled.script, selector).is_ok());
+}
+
+#[test]
+fn rejects_function_call_assignment_with_mismatched_signature() {
+    let source = r#"
+        contract Calls() {
+            function f(int a, int b) : (int, int) {
+                return(a + b, a * b);
+            }
+
+            function main() {
+                (int sum, bytes prod) = f(2, 3);
+                require(sum == 5);
+            }
+        }
+    "#;
+
+    assert!(compile_contract(source, &[], CompileOptions::default()).is_err());
+}
+
+#[test]
+fn rejects_function_call_assignment_with_wrong_return_count() {
+    let source = r#"
+        contract Calls() {
+            function f(int a, int b) : (int, int) {
+                return(a + b, a * b);
+            }
+
+            function main() {
+                (int sum) = f(2, 3);
+                require(sum == 5);
+            }
+        }
+    "#;
+
+    assert!(compile_contract(source, &[], CompileOptions::default()).is_err());
+}
+
+#[test]
+fn allows_calling_void_function() {
+    let source = r#"
+        contract Calls() {
+            function ping(int a) {
+                require(a == 1);
+            }
+
+            function main() {
+                ping(1);
+                require(true);
+            }
+        }
+    "#;
+
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+    let selector = selector_for(&compiled, "main");
+    let result = run_script_with_selector(compiled.script, selector);
+    assert!(result.is_ok(), "array/loop/function-call example failed: {}", result.unwrap_err());
+}
+
+#[test]
+fn recursive_fibonacci_inlining_behavior() {
+    let source = r#"
+        contract Fib() {
+            function fib(int n) : (int) {
+                int result = 0;
+                if (n <= 1) {
+                    result = n;
+                } else {
+                    (int a) = fib(n - 1);
+                    (int b) = fib(n - 2);
+                    result = a + b;
+                }
+                return(result);
+            }
+
+            function main(int n, int expected) {
+                require(fib(n) == expected);
+            }
+        }
+    "#;
+
+    let err = compile_contract(source, &[], CompileOptions::default()).expect_err("recursive call should fail");
+    assert!(err.to_string().contains("earlier-defined"));
+}
+
+#[test]
+fn rejects_calling_later_defined_function() {
+    let source = r#"
+        contract Calls() {
+            function first() {
+                second();
+            }
+
+            function second() {
+                require(true);
+            }
+        }
+    "#;
+
+    let err = compile_contract(source, &[], CompileOptions::default()).expect_err("forward call should fail");
+    assert!(err.to_string().contains("earlier-defined"));
+}
+
+#[test]
+fn allows_call_chain_with_earlier_defined_functions() {
+    let source = r#"
+        contract Calls() {
+            function h(int x) : (int) {
+                require(x > 0);
+                return(x + 1);
+            }
+
+            function g(int y) : (int) {
+                require(y > 1);
+                (int z) = h(2);
+                return(z + y);
+            }
+
+            function f(int w) : (int) {
+                require(w > 2);
+                (int v) = g(3);
+                return(v + w);
+            }
+
+            function main() {
+                (int out) = f(4);
+                require(out == 10);
+            }
+        }
+    "#;
+
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+    let selector = selector_for(&compiled, "main");
+    let result = run_script_with_selector(compiled.script, selector);
+    assert!(result.is_ok(), "array/loop/function-call example failed: {}", result.unwrap_err());
+}
+#[test]
+fn allows_calling_void_function_fails() {
+    let source = r#"
+        contract Calls() {
+            function ping(int a) {
+                require(a == 2);
+            }
+
+            function main() {
+                ping(1);
+                require(true);
+            }
+        }
+    "#;
+
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+    let selector = selector_for(&compiled, "main");
+    assert!(run_script_with_selector(compiled.script, selector).is_err());
+}
+
+#[test]
+fn rejects_return_without_signature() {
+    let source = r#"
+        contract C() {
+            function main() {
+                return(1);
+            }
+        }
+    "#;
+    assert!(compile_contract(source, &[], CompileOptions::default()).is_err());
+}
+
+#[test]
+fn rejects_return_not_last_statement() {
+    let source = r#"
+        contract C() {
+            function main() : (int) {
+                return(1);
+                require(true);
+            }
+        }
+    "#;
+    assert!(compile_contract(source, &[], CompileOptions::default()).is_err());
+}
+
+#[test]
+fn rejects_return_value_count_mismatch() {
+    let source = r#"
+        contract C() {
+            function main() : (int, int) {
+                return(1);
+            }
+        }
+    "#;
+    assert!(compile_contract(source, &[], CompileOptions::default()).is_err());
+}
+
+#[test]
+fn rejects_return_type_mismatch() {
+    let source = r#"
+        contract C() {
+            function main(bool b) : (int) {
+                return(b);
+            }
+        }
+    "#;
+    assert!(compile_contract(source, &[], CompileOptions::default()).is_err());
 }
 
 #[test]
@@ -583,6 +851,39 @@ fn runs_array_for_loop_with_length_guard() {
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
     assert!(result.is_ok(), "array for-loop length-guard runtime failed: {}", result.unwrap_err());
+}
+
+#[test]
+fn runs_array_loop_and_function_calls_example() {
+    let source = r#"
+        contract Sum() {
+            int constant MAX_ARRAY_SIZE = 5;
+            function sumArray(int[] arr) : (int) {
+                require(arr.length <= MAX_ARRAY_SIZE);
+                int sum = 0;
+                for (i, 0, MAX_ARRAY_SIZE) {
+                    if (i < arr.length) {
+                       sum = sum + arr[i];
+                    }
+                }
+                return(sum);
+            }
+
+            function main() {
+                int[] x;
+                x.push(1);
+                x.push(2);
+                x.push(3);
+                (int total) = sumArray(x);
+                require(total == 6);
+            }
+        }
+    "#;
+
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+    let selector = selector_for(&compiled, "main");
+    let result = run_script_with_selector(compiled.script, selector);
+    assert!(result.is_ok(), "array/loop/function-call example failed: {}", result.unwrap_err());
 }
 
 #[test]
