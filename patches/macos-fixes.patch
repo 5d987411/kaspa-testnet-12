@@ -1,0 +1,60 @@
+diff --git a/kaspad/src/daemon.rs b/kaspad/src/daemon.rs
+index 9b4d7c07..4094c04c 100644
+--- a/kaspad/src/daemon.rs
++++ b/kaspad/src/daemon.rs
+@@ -68,7 +68,7 @@ const DEFAULT_DATA_DIR: &str = "datadir";
+ const CONSENSUS_DB: &str = "consensus";
+ const UTXOINDEX_DB: &str = "utxoindex";
+ const META_DB: &str = "meta";
+-const META_DB_FILE_LIMIT: i32 = 5;
++const META_DB_FILE_LIMIT: i32 = 100;
+ const DEFAULT_LOG_DIR: &str = "logs";
+ 
+ fn get_home_dir() -> PathBuf {
+@@ -278,12 +278,11 @@ pub fn create_core_with_runtime(runtime: &Runtime, args: &Args, fd_total_budget:
+     let network = args.network();
+     let mut fd_remaining = fd_total_budget;
+     let utxo_files_limit = if args.utxoindex {
+-        let utxo_files_limit = fd_remaining / 10;
+-        fd_remaining -= utxo_files_limit;
+-        utxo_files_limit
++        fd_remaining / 10
+     } else {
+         0
+     };
++    let consensus_files_limit = fd_remaining - utxo_files_limit;
+ 
+     // Configure RocksDB parameters
+     let (rocksdb_preset, cache_budget, wal_dir) = configure_rocksdb(args);
+@@ -407,7 +406,7 @@ do you confirm? (answer y/n or pass --yes to the Kaspad command line to confirm
+             Some(dir_name) => {
+                 let consensus_db = kaspa_database::prelude::ConnBuilder::default()
+                     .with_db_path(consensus_db_dir.clone().join(dir_name))
+-                    .with_files_limit(1)
++                        .with_files_limit(100)
+                     .with_preset(rocksdb_preset)
+                     .with_wal_dir(wal_dir.clone())
+                     .with_cache_budget(cache_budget)
+@@ -462,7 +461,7 @@ Do you confirm? (y/n)";
+ 
+                     let consensus_db = kaspa_database::prelude::ConnBuilder::default()
+                         .with_db_path(consensus_db_dir.clone().join(current_consensus_db))
+-                        .with_files_limit(10)
++                    .with_files_limit(100)
+                         .with_preset(rocksdb_preset)
+                         .with_wal_dir(wal_dir.clone())
+                         .with_cache_budget(cache_budget)
+diff --git a/utils/src/fd_budget.rs b/utils/src/fd_budget.rs
+index 81ca0e24..c3cbf1d3 100644
+--- a/utils/src/fd_budget.rs
++++ b/utils/src/fd_budget.rs
+@@ -70,7 +70,8 @@ pub fn limit() -> i32 {
+             rlimit::getmaxstdio() as i32
+         }
+         else if #[cfg(unix)] {
+-            rlimit::getrlimit(rlimit::Resource::NOFILE).unwrap().0 as i32
++            let l = rlimit::getrlimit(rlimit::Resource::NOFILE).unwrap().0 as i32;
++            if l <= 0 { 1024 } else { l }
+         }
+         else {
+             512
