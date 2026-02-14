@@ -1,0 +1,85 @@
+pragma silverscript ^0.1.0;
+
+/**
+ * Deadman Switch Contract
+ * 
+ * A smart contract that allows a beneficiary to claim funds after the owner
+ * has not interacted with the contract for a specified time period.
+ * 
+ * The owner can:
+ * - Fund the contract with Kaspa
+ * - Reset the timer at any time by calling the `heartbeat` function
+ * - Cancel the contract entirely and recover funds before timeout
+ * 
+ * The beneficiary can:
+ * - Claim funds after the timeout period has elapsed without owner intervention
+ * 
+ * Use cases:
+ * - Estate planning / inheritance
+ * - Long-term storage without needing to remember to check in
+ * - Time-locked savings (forced savings)
+ */
+
+contract DeadmanSwitch(
+    pubkey owner,           // Owner public key (can reset/cancel)
+    pubkey beneficiary,     // Beneficiary public key (can claim after timeout)
+    int timeoutPeriod       // Time in seconds before beneficiary can claim
+) {
+    
+    /**
+     * Heartbeat - Reset the timeout counter
+     * 
+     * Owner calls this to prove they're still alive/active.
+     * This resets the timer, preventing beneficiary from claiming.
+     */
+    entrypoint function heartbeat(sig ownerSig) {
+        // Verify the caller is the owner
+        require(checkSig(ownerSig, owner));
+        
+        // The heartbeat resets the contract's age
+        // Any owner-signed spending transaction resets the timer
+        
+        // Require at least something in the first output to reset
+        require(tx.outputs[0].value > 0);
+    }
+    
+    /**
+     * Claim - Beneficiary claims funds after timeout
+     * 
+     * Can only be called after `timeoutPeriod` seconds have passed
+     * since the last owner interaction.
+     */
+    entrypoint function claim(sig beneficiarySig) {
+        // Verify the caller is the beneficiary
+        require(checkSig(beneficiarySig, beneficiary));
+        
+        // Verify timeout has passed
+        require(this.age >= timeoutPeriod);
+        
+        // All funds go to beneficiary
+        bytes34 beneficiaryLock = new LockingBytecodeP2PK(beneficiary);
+        require(tx.outputs[0].lockingBytecode == beneficiaryLock);
+        
+        // Ensure all funds are transferred
+        int inputValue = tx.inputs[this.activeInputIndex].value;
+        require(tx.outputs[0].value == inputValue);
+    }
+    
+    /**
+     * Cancel - Owner cancels and recovers funds
+     * 
+     * Owner can cancel at any time and recover remaining funds.
+     */
+    entrypoint function cancel(sig ownerSig) {
+        // Verify the caller is the owner
+        require(checkSig(ownerSig, owner));
+        
+        // All funds returned to owner
+        bytes34 ownerLock = new LockingBytecodeP2PK(owner);
+        require(tx.outputs[0].lockingBytecode == ownerLock);
+        
+        // Ensure all funds are returned
+        int inputValue = tx.inputs[this.activeInputIndex].value;
+        require(tx.outputs[0].value == inputValue);
+    }
+}

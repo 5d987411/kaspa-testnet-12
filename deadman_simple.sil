@@ -1,0 +1,30 @@
+pragma silverscript ^0.1.0;
+
+/**
+ * Deadman Switch - Simple Version
+ * 
+ * A smart contract where:
+ * - Owner can cancel and recover funds anytime
+ * - Beneficiary can claim after timeout period elapses
+ */
+
+contract DeadmanSwitchSimple(
+    pubkey owner,
+    pubkey beneficiary,
+    int timeout
+) {
+    // Owner cancels and recovers funds
+    entrypoint function cancel(sig s) {
+        require(checkSig(s, owner));
+        bytes34 lock = new LockingBytecodeP2PK(owner);
+        require(tx.outputs[0].lockingBytecode == lock);
+    }
+    
+    // Beneficiary claims after timeout
+    entrypoint function claim(sig s) {
+        require(checkSig(s, beneficiary));
+        require(this.age >= timeout);
+        bytes34 lock = new LockingBytecodeP2PK(beneficiary);
+        require(tx.outputs[0].lockingBytecode == lock);
+    }
+}
