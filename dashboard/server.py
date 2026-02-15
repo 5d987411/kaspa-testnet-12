@@ -4,7 +4,7 @@ Simple Flask server for Kaspa Dashboard
 Serves the dashboard and proxies log data
 """
 
-from flask import Flask, render_template, jsonify, Response, make_response
+from flask import Flask, render_template, jsonify, Response, make_response, request
 import subprocess
 import threading
 import time
@@ -13,7 +13,7 @@ import re
 
 app = Flask(__name__)
 
-LOG_FILE = "/tmp/kaspad.log"
+LOG_FILE = "/tmp/kaspad_tn12.log"
 PORT = 8080
 
 WALLET_KEY = "39186751d974432cb50431befe5575e3d138f66c218a1018f8fa2959dc8de6aa"
@@ -345,6 +345,154 @@ def api_log():
             return jsonify({"lines": lines, "success": True})
     except Exception as e:
         return jsonify({"error": str(e), "success": False})
+
+@app.route('/deadman')
+def deadman():
+    return render_template('deadman.html')
+
+@app.route('/api/deadman/generate-keys', methods=['POST'])
+def deadman_generate_keys():
+    """Generate a new keypair for deadman switch"""
+    try:
+        # Use openssl to generate a keypair
+        # Generate private key
+        priv_proc = subprocess.Popen(
+            ["openssl", "ecparam", "-genkey", "-name", "secp256k1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        priv_der, _ = priv_proc.communicate(timeout=10)
+        
+        # Get public key from private key
+        pub_proc = subprocess.Popen(
+            ["openssl", "ec", "-pubout"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        pub_pem, _ = pub_proc.communicate(input=priv_der, timeout=10)
+        
+        # Convert PEM to hex (uncompressed format)
+        # Skip header/footer and decode base64
+        import base64
+        pub_pem_str = pub_pem.decode('utf-8')
+        pub_lines = pub_pem_str.split('\n')
+        pub_b64 = ''.join([l for l in pub_lines if not l.startswith('-----')])
+        pub_der2 = base64.b64decode(pub_b64)
+        
+        # DER to uncompressed hex (04 + X + Y)
+        # Skip ASN.1 header and get 65 bytes (33 + 32)
+        pub_hex = pub_der2.hex()
+        # Find the uncompressed pubkey (starts with 04)
+        idx = pub_hex.find('04')
+        if idx >= 0:
+            pub_key = pub_hex[idx:idx+130]  # 04 + 64 bytes = 130 chars
+        else:
+            pub_key = "04" + pub_hex[-128:]  # Fallback
+        
+        return jsonify({"success": True, "publicKey": pub_key})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/deadman/create-args', methods=['POST'])
+def deadman_create_args():
+    """Generate constructor arguments for deadman switch"""
+    try:
+        import json
+        data = request.get_json()
+        owner_pubkey = data.get('ownerPubkey', '')
+        beneficiary_pubkey = data.get('beneficiaryPubkey', '')
+        timeout = int(data.get('timeout', 31536000))
+        
+        # Convert hex pubkeys to byte arrays
+        def hex_to_bytes(hex_str):
+            if hex_str.startswith('0x'):
+                hex_str = hex_str[2:]
+            return [int(hex_str[i:i+2], 16) for i in range(0, len(hex_str), 2)]
+        
+        owner_bytes = hex_to_bytes(owner_pubkey)
+        beneficiary_bytes = hex_to_bytes(beneficiary_pubkey)
+        
+        args = [
+            {"kind": "bytes", "data": owner_bytes},
+            {"kind": "bytes", "data": beneficiary_bytes},
+            {"kind": "int", "data": timeout}
+        ]
+        
+        return jsonify({"success": True, "args": args})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/deadman/check-utxo', methods=['GET'])
+def deadman_check_utxo():
+    """Check if a contract address has UTXOs"""
+    try:
+        address = request.args.get('address', '')
+        if not address:
+            return jsonify({"success": False, "error": "No address provided"})
+        
+        # Query UTXOs via rothschild (quick check)
+        result = subprocess.run(
+            f"echo '{{\"id\":1,\"method\":\"getUTXOsByAddresses\",\"params\":{{\"addresses\":[\"{address}\"]}}}}' | nc -w 5 localhost 18210",
+            shell=True,
+            capture_output=True,
+            timeout=10,
+            text=True
+        )
+        
+        return jsonify({"success": True, "utxoResponse": result.stdout})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/deadman/contracts', methods=['GET', 'POST'])
+def deadman_contracts():
+    """Manage deadman switch contracts"""
+    import json
+    
+    # Simple file-based storage for contracts
+    CONTRACTS_FILE = os.path.expanduser("~/.kaspa_dashboard/deadman_contracts.json")
+    
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(CONTRACTS_FILE), exist_ok=True)
+    
+    # Load existing contracts
+    try:
+        if os.path.exists(CONTRACTS_FILE):
+            with open(CONTRACTS_FILE, 'r') as f:
+                contracts = json.load(f)
+        else:
+            contracts = []
+    except:
+        contracts = []
+    
+    if request.method == 'POST':
+        data = request.get_json()
+        action = data.get('action', '')
+        
+        if action == 'add':
+            contracts.append({
+                'address': data.get('address', ''),
+                'ownerPubkey': data.get('ownerPubkey', ''),
+                'beneficiaryPubkey': data.get('beneficiaryPubkey', ''),
+                'timeout': data.get('timeout', 0),
+                'created': time.time()
+            })
+            
+            with open(CONTRACTS_FILE, 'w') as f:
+                json.dump(contracts, f)
+            
+            return jsonify({"success": True})
+        
+        elif action == 'remove':
+            address = data.get('address', '')
+            contracts = [c for c in contracts if c.get('address') != address]
+            
+            with open(CONTRACTS_FILE, 'w') as f:
+                json.dump(contracts, f)
+            
+            return jsonify({"success": True})
+    
+    return jsonify({"success": True, "contracts": contracts})
 
 if __name__ == '__main__':
     print(f"Starting Kaspa Dashboard on http://localhost:{PORT}")
