@@ -88,7 +88,7 @@ fn run_script_with_sigscript(script: Vec<u8>, sigscript: Vec<u8>) -> Result<(), 
 #[test]
 fn accepts_constructor_args_with_matching_types() {
     let source = r#"
-        contract Types(int a, bool b, string c, bytes d, byte e, bytes4 f, pubkey pk, sig s, datasig ds) {
+        contract Types(int a, bool b, string c, byte[] d, byte e, byte[4] f, pubkey pk, sig s, datasig ds) {
             entrypoint function main() {
                 require(true);
             }
@@ -98,12 +98,12 @@ fn accepts_constructor_args_with_matching_types() {
         Expr::Int(7),
         Expr::Bool(true),
         Expr::String("hello".to_string()),
-        Expr::Bytes(vec![1u8; 10]),
-        Expr::Bytes(vec![2u8; 1]),
-        Expr::Bytes(vec![3u8; 4]),
-        Expr::Bytes(vec![4u8; 32]),
-        Expr::Bytes(vec![5u8; 64]),
-        Expr::Bytes(vec![6u8; 64]),
+        vec![1u8; 10].into(),
+        Expr::Byte(2), // Single byte for type 'byte'
+        vec![3u8; 4].into(),
+        vec![4u8; 32].into(),
+        vec![5u8; 64].into(),
+        vec![6u8; 64].into(),
     ];
     compile_contract(source, &args, CompileOptions::default()).expect("compile succeeds");
 }
@@ -117,39 +117,33 @@ fn rejects_constructor_args_with_wrong_scalar_types() {
             }
         }
     "#;
-    let args = vec![Expr::Bool(true), Expr::Int(1), Expr::Bytes(vec![1u8])];
+    let args = vec![Expr::Bool(true), Expr::Int(1), vec![1u8].into()];
     assert!(compile_contract(source, &args, CompileOptions::default()).is_err());
 }
 
 #[test]
 fn rejects_constructor_args_with_wrong_byte_lengths() {
     let source = r#"
-        contract Types(byte b, bytes4 c, pubkey pk, sig s, datasig ds) {
+        contract Types(byte b, byte[4] c, pubkey pk, sig s, datasig ds) {
             entrypoint function main() {
                 require(true);
             }
         }
     "#;
-    let args = vec![
-        Expr::Bytes(vec![1u8; 2]),
-        Expr::Bytes(vec![2u8; 3]),
-        Expr::Bytes(vec![3u8; 31]),
-        Expr::Bytes(vec![4u8; 63]),
-        Expr::Bytes(vec![5u8; 66]),
-    ];
+    let args = vec![vec![1u8; 2].into(), vec![2u8; 3].into(), vec![3u8; 31].into(), vec![4u8; 63].into(), vec![5u8; 66].into()];
     assert!(compile_contract(source, &args, CompileOptions::default()).is_err());
 }
 
 #[test]
 fn accepts_constructor_args_with_any_bytes_length() {
     let source = r#"
-        contract Types(bytes blob) {
+        contract Types(byte[] blob) {
             entrypoint function main() {
                 require(true);
             }
         }
     "#;
-    let args = vec![Expr::Bytes(vec![9u8; 128])];
+    let args = vec![vec![9u8; 128].into()];
     compile_contract(source, &args, CompileOptions::default()).expect("compile succeeds");
 }
 
@@ -157,13 +151,13 @@ fn accepts_constructor_args_with_any_bytes_length() {
 fn build_sig_script_builds_expected_script() {
     let source = r#"
         contract BoundedBytes() {
-            entrypoint function spend(bytes4 b, int i) {
-                require(b == bytes4(i));
+            entrypoint function spend(byte[4] b, int i) {
+                require(b == byte[4](i));
             }
         }
     "#;
     let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
-    let args = vec![Expr::Bytes(vec![1u8, 2, 3, 4]), Expr::Int(7)];
+    let args = vec![vec![1u8, 2, 3, 4].into(), Expr::Int(7)];
     let sigscript = compiled.build_sig_script("spend", args).expect("sigscript builds");
 
     let selector = selector_for(&compiled, "spend");
@@ -210,13 +204,13 @@ fn build_sig_script_rejects_wrong_argument_count() {
 fn build_sig_script_rejects_wrong_argument_type() {
     let source = r#"
         contract C() {
-            entrypoint function spend(bytes4 b) {
+            entrypoint function spend(byte[4] b) {
                 require(b.length == 4);
             }
         }
     "#;
     let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
-    let result = compiled.build_sig_script("spend", vec![Expr::Bytes(vec![1u8; 3])]);
+    let result = compiled.build_sig_script("spend", vec![vec![1u8; 3].into()]);
     assert!(result.is_err());
 }
 
@@ -294,24 +288,24 @@ fn rejects_entrypoint_return_by_default() {
 fn build_sig_script_rejects_mismatched_bytes_length() {
     let source = r#"
         contract C() {
-            entrypoint function spend(bytes4 b) {
+            entrypoint function spend(byte[4] b) {
                 require(b.length == 4);
             }
         }
     "#;
     let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
-    let result = compiled.build_sig_script("spend", vec![Expr::Bytes(vec![1u8; 5])]);
+    let result = compiled.build_sig_script("spend", vec![vec![1u8; 5].into()]);
     assert!(result.is_err());
 
     let source = r#"
         contract C() {
-            entrypoint function spend(bytes5 b) {
+            entrypoint function spend(byte[5] b) {
                 require(b.length == 5);
             }
         }
     "#;
     let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
-    let result = compiled.build_sig_script("spend", vec![Expr::Bytes(vec![1u8; 4])]);
+    let result = compiled.build_sig_script("spend", vec![vec![1u8; 4].into()]);
     assert!(result.is_err());
 }
 
@@ -319,7 +313,7 @@ fn build_sig_script_rejects_mismatched_bytes_length() {
 fn build_sig_script_omits_selector_without_selector() {
     let source = r#"
         contract Single() {
-            entrypoint function spend(int a, bytes4 b) {
+            entrypoint function spend(int a, byte[4] b) {
                 require(a == 1);
                 require(b.length == 4);
             }
@@ -385,7 +379,7 @@ fn rejects_function_call_assignment_with_mismatched_signature() {
             }
 
             entrypoint function main() {
-                (int sum, bytes prod) = f(2, 3);
+                (int sum, byte[] prod) = f(2, 3);
                 require(sum == 5);
             }
         }
@@ -410,6 +404,74 @@ fn rejects_function_call_assignment_with_wrong_return_count() {
     "#;
 
     assert!(compile_contract(source, &[], CompileOptions::default()).is_err());
+}
+
+#[test]
+fn rejects_internal_function_call_with_wrong_fixed_array_arg_size() {
+    let source = r#"
+        contract Calls() {
+            function f(byte[4] b) {
+                require(b.length == 4);
+            }
+
+            entrypoint function main() {
+                f(0x010203);
+            }
+        }
+    "#;
+
+    assert!(compile_contract(source, &[], CompileOptions::default()).is_err());
+}
+
+#[test]
+fn accepts_internal_function_call_with_matching_fixed_array_arg_size() {
+    let source = r#"
+        contract Calls() {
+            function f(byte[4] b) {
+                require(b.length == 4);
+            }
+
+            entrypoint function main() {
+                f(0x01020304);
+            }
+        }
+    "#;
+
+    compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+}
+
+#[test]
+fn rejects_internal_function_call_with_wrong_fixed_int_array_arg_size() {
+    let source = r#"
+        contract Calls() {
+            function f(int[4] a) {
+                require(a.length == 4);
+            }
+
+            entrypoint function main() {
+                f([1, 2, 3]);
+            }
+        }
+    "#;
+
+    assert!(compile_contract(source, &[], CompileOptions::default()).is_err());
+}
+
+#[test]
+fn accepts_internal_function_call_with_matching_fixed_int_array_arg_size() {
+    let source = r#"
+        contract Calls() {
+            function f(int[4] a) {
+                require(a.length == 4);
+            }
+
+            entrypoint function main() {
+                f([1, 2, 3, 4]);
+            }
+        }
+    "#;
+
+    compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
 }
 
 #[test]
@@ -590,7 +652,7 @@ fn compiles_int_array_length_to_expected_script() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
 
     let expected = ScriptBuilder::new()
@@ -630,7 +692,7 @@ fn compiles_int_array_push_to_expected_script() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
 
     let expected = ScriptBuilder::new()
@@ -678,7 +740,7 @@ fn compiles_int_array_index_to_expected_script() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
 
     let expected = ScriptBuilder::new()
@@ -735,7 +797,7 @@ fn runs_array_runtime_examples() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
     let sigscript = ScriptBuilder::new().drain();
     let result = run_script_with_sigscript(compiled.script, sigscript);
@@ -743,17 +805,139 @@ fn runs_array_runtime_examples() {
 }
 
 #[test]
+fn allows_concat_of_int_arrays_with_plus() {
+    let source = r#"
+        contract Arrays() {
+            entrypoint function main() {
+                int[] a = [1, 2];
+                int[] b = [3, 4];
+                int[4] c = a + b;
+
+                require(c.length == 4);
+                require(c[0] == 1);
+                require(c[1] == 2);
+                require(c[2] == 3);
+                require(c[3] == 4);
+            }
+        }
+    "#;
+
+    let options = CompileOptions::default();
+    let compiled = compile_contract(source, &[], options).expect("compile succeeds");
+    let sigscript = ScriptBuilder::new().drain();
+    let result = run_script_with_sigscript(compiled.script, sigscript);
+    assert!(result.is_ok(), "int[] concatenation runtime failed: {}", result.unwrap_err());
+}
+
+#[test]
+fn allows_concat_of_byte_arrays_with_plus() {
+    let source = r#"
+        contract Arrays() {
+            entrypoint function main() {
+                byte[] a = 0x0102;
+                byte[] b = 0x0304;
+                byte[4] c = a + b;
+
+                require(c.length == 4);
+                require(c == 0x01020304);
+            }
+        }
+    "#;
+
+    let options = CompileOptions::default();
+    let compiled = compile_contract(source, &[], options).expect("compile succeeds");
+    let sigscript = ScriptBuilder::new().drain();
+    let result = run_script_with_sigscript(compiled.script, sigscript);
+    assert!(result.is_ok(), "byte[] concatenation runtime failed: {}", result.unwrap_err());
+}
+
+#[test]
+fn allows_concat_of_fixed_size_byte_array_elements_with_plus() {
+    let source = r#"
+        contract Arrays() {
+            entrypoint function main() {
+                byte[2][] a = [0x0102, 0x0304];
+                byte[2][] b = [0x0506];
+                byte[2][3] c = a + b;
+
+                require(c.length == 3);
+                require(c[0] == 0x0102);
+                require(c[1] == 0x0304);
+                require(c[2] == 0x0506);
+            }
+        }
+    "#;
+
+    let options = CompileOptions::default();
+    let compiled = compile_contract(source, &[], options).expect("compile succeeds");
+    let sigscript = ScriptBuilder::new().drain();
+    let result = run_script_with_sigscript(compiled.script, sigscript);
+    assert!(result.is_ok(), "byte[N][] concatenation runtime failed: {}", result.unwrap_err());
+}
+
+#[test]
+fn allows_concat_of_bool_arrays_with_plus() {
+    let source = r#"
+        contract Arrays() {
+            entrypoint function main() {
+                bool[] a = [true, false];
+                bool[] b = [true, false];
+                bool[4] c = a + b;
+
+                require(c.length == 4);
+                require(c[0]);
+                require(!c[1]);
+                require(c[2]);
+                require(!c[3]);
+            }
+        }
+    "#;
+
+    let options = CompileOptions::default();
+    let compiled = compile_contract(source, &[], options).expect("compile succeeds");
+    let sigscript = ScriptBuilder::new().drain();
+    let result = run_script_with_sigscript(compiled.script, sigscript);
+    assert!(result.is_ok(), "bool[] concatenation runtime failed: {}", result.unwrap_err());
+}
+
+#[test]
+fn allows_concat_of_pubkey_arrays_with_plus() {
+    let source = r#"
+        contract Arrays() {
+            entrypoint function main() {
+                pubkey p1 = 0x0202020202020202020202020202020202020202020202020202020202020202;
+                pubkey p2 = 0x0303030303030303030303030303030303030303030303030303030303030303;
+
+                pubkey[] a = [p1];
+                pubkey[] b = [p2];
+                pubkey[2] c = a + b;
+
+                require(c.length == 2);
+                require(c[0] == p1);
+                require(c[1] == p2);
+            }
+        }
+    "#;
+
+    let options = CompileOptions::default();
+    let compiled = compile_contract(source, &[], options).expect("compile succeeds");
+    let sigscript = ScriptBuilder::new().drain();
+    let result = run_script_with_sigscript(compiled.script, sigscript);
+    assert!(result.is_ok(), "pubkey[] concatenation runtime failed: {}", result.unwrap_err());
+}
+
+#[test]
 fn compiles_bytes20_array_push_without_num2bin() {
     let source = r#"
         contract Arrays() {
             entrypoint function main() {
-                bytes20[] x;
+                byte[20][] x;
                 x.push(0x0102030405060708090a0b0c0d0e0f1011121314);
                 require(x.length == 1);
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
 
     let value =
@@ -793,7 +977,7 @@ fn runs_bytes20_array_runtime_example() {
     let source = r#"
         contract Arrays() {
             entrypoint function main() {
-                bytes20[] x;
+                byte[20][] x;
                 x.push(0x0102030405060708090a0b0c0d0e0f1011121314);
                 x.push(0x1111111111111111111111111111111111111111);
                 require(x.length == 2);
@@ -802,11 +986,11 @@ fn runs_bytes20_array_runtime_example() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
     let sigscript = ScriptBuilder::new().drain();
     let result = run_script_with_sigscript(compiled.script, sigscript);
-    assert!(result.is_ok(), "bytes20 array runtime example failed: {}", result.unwrap_err());
+    assert!(result.is_ok(), "byte[20] array runtime example failed: {}", result.unwrap_err());
 }
 
 #[test]
@@ -814,15 +998,15 @@ fn allows_array_equality_comparison() {
     let source = r#"
         contract Arrays() {
             entrypoint function main() {
-                bytes20[] x;
-                bytes20[] y;
+                byte[20][] x;
+                byte[20][] y;
                 x.push(0x0102030405060708090a0b0c0d0e0f1011121314);
                 y.push(0x0102030405060708090a0b0c0d0e0f1011121314);
                 require(x == y);
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
     let sigscript = ScriptBuilder::new().drain();
     let result = run_script_with_sigscript(compiled.script, sigscript);
@@ -834,15 +1018,15 @@ fn fails_array_equality_comparison() {
     let source = r#"
         contract Arrays() {
             entrypoint function main() {
-                bytes20[] x;
-                bytes20[] y;
+                byte[20][] x;
+                byte[20][] y;
                 x.push(0x0102030405060708090a0b0c0d0e0f1011121314);
                 y.push(0x2222222222222222222222222222222222222222);
                 require(x == y);
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
     let sigscript = ScriptBuilder::new().drain();
     let result = run_script_with_sigscript(compiled.script, sigscript);
@@ -854,8 +1038,8 @@ fn allows_array_inequality_with_different_sizes() {
     let source = r#"
         contract Arrays() {
             entrypoint function main() {
-                bytes20[] x;
-                bytes20[] y;
+                byte[20][] x;
+                byte[20][] y;
                 x.push(0x0102030405060708090a0b0c0d0e0f1011121314);
                 y.push(0x0102030405060708090a0b0c0d0e0f1011121314);
                 y.push(0x2222222222222222222222222222222222222222);
@@ -863,7 +1047,7 @@ fn allows_array_inequality_with_different_sizes() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
     let sigscript = ScriptBuilder::new().drain();
     let result = run_script_with_sigscript(compiled.script, sigscript);
@@ -885,7 +1069,7 @@ fn runs_array_for_loop_example() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
     let sigscript = ScriptBuilder::new().drain();
     let result = run_script_with_sigscript(compiled.script, sigscript);
@@ -908,7 +1092,7 @@ fn runs_array_for_loop_with_length_guard() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
 
     let sigscript = compiled.build_sig_script("main", vec![vec![1i64, 2i64, 3i64, 4i64].into()]).expect("sigscript builds");
@@ -962,7 +1146,7 @@ fn allows_array_assignment_with_compatible_types() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     let compiled = compile_contract(source, &[], options).expect("compile succeeds");
     let sigscript = ScriptBuilder::new().drain();
     let result = run_script_with_sigscript(compiled.script, sigscript);
@@ -978,7 +1162,7 @@ fn rejects_unsized_array_type() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     assert!(compile_contract(source, &[], options).is_err());
 }
 
@@ -992,7 +1176,7 @@ fn rejects_array_element_assignment() {
             }
         }
     "#;
-    let options = CompileOptions { allow_yield: false, allow_entrypoint_return: false };
+    let options = CompileOptions::default();
     assert!(compile_contract(source, &[], options).is_err());
 }
 
@@ -1000,8 +1184,8 @@ fn rejects_array_element_assignment() {
 fn locking_bytecode_p2pk_matches_pay_to_address_script() {
     let source = r#"
         contract Test() {
-            entrypoint function main(pubkey pk, bytes expected) {
-                bytes spk = new LockingBytecodeP2PK(pk);
+            entrypoint function main(pubkey pk, byte[] expected) {
+                byte[] spk = new LockingBytecodeP2PK(pk);
                 require(spk == expected);
             }
         }
@@ -1024,8 +1208,8 @@ fn locking_bytecode_p2pk_matches_pay_to_address_script() {
 fn locking_bytecode_p2sh_matches_pay_to_address_script() {
     let source = r#"
         contract Test() {
-            entrypoint function main(bytes32 hash, bytes expected) {
-                bytes spk = new LockingBytecodeP2SH(hash);
+            entrypoint function main(byte[32] hash, byte[] expected) {
+                byte[] spk = new LockingBytecodeP2SH(hash);
                 require(spk == expected);
             }
         }
@@ -1048,8 +1232,8 @@ fn locking_bytecode_p2sh_matches_pay_to_address_script() {
 fn locking_bytecode_p2sh_from_redeem_script_matches_pay_to_script_hash_script() {
     let source = r#"
         contract Test() {
-            entrypoint function main(bytes redeem_script, bytes expected) {
-                bytes spk = new LockingBytecodeP2SHFromRedeemScript(redeem_script);
+            entrypoint function main(byte[] redeem_script, byte[] expected) {
+                byte[] spk = new LockingBytecodeP2SHFromRedeemScript(redeem_script);
                 require(spk == expected);
             }
         }
@@ -2347,7 +2531,7 @@ fn data_prefix_for_size(data_len: usize) -> Vec<u8> {
 fn compiles_script_size_data_prefix_small_script() {
     let source = r#"
         contract PrefixSmall() {
-            entrypoint function main(bytes expected_data_prefix) {
+            entrypoint function main(byte[] expected_data_prefix) {
                 require(expected_data_prefix == this.scriptSizeDataPrefix);
                 require(true);
             }
@@ -2356,7 +2540,7 @@ fn compiles_script_size_data_prefix_small_script() {
 
     let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
     let expected_prefix = data_prefix_for_size(compiled.script.len());
-    let sigscript = compiled.build_sig_script("main", vec![Expr::Bytes(expected_prefix)]).expect("sigscript builds");
+    let sigscript = compiled.build_sig_script("main", vec![expected_prefix.into()]).expect("sigscript builds");
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
     assert!(result.is_ok(), "scriptSizeDataPrefix small failed: {}", result.unwrap_err());
@@ -2366,7 +2550,7 @@ fn compiles_script_size_data_prefix_small_script() {
 fn compiles_script_size_data_prefix_medium_script() {
     let source = r#"
         contract PrefixMedium() {
-            entrypoint function main(bytes expected_data_prefix) {
+            entrypoint function main(byte[] expected_data_prefix) {
                 require(expected_data_prefix == this.scriptSizeDataPrefix);
                 for (i, 0, 100) {
                     require(true);
@@ -2377,7 +2561,7 @@ fn compiles_script_size_data_prefix_medium_script() {
 
     let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
     let expected_prefix = data_prefix_for_size(compiled.script.len());
-    let sigscript = compiled.build_sig_script("main", vec![Expr::Bytes(expected_prefix)]).expect("sigscript builds");
+    let sigscript = compiled.build_sig_script("main", vec![expected_prefix.into()]).expect("sigscript builds");
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
     assert!(result.is_ok(), "scriptSizeDataPrefix medium failed: {}", result.unwrap_err());
@@ -2387,7 +2571,7 @@ fn compiles_script_size_data_prefix_medium_script() {
 fn compiles_script_size_data_prefix_large_script() {
     let source = r#"
         contract PrefixLarge() {
-            entrypoint function main(bytes expected_data_prefix) {
+            entrypoint function main(byte[] expected_data_prefix) {
                 require(expected_data_prefix == this.scriptSizeDataPrefix);
                 for (i, 0, 300) {
                     require(true);
@@ -2398,7 +2582,7 @@ fn compiles_script_size_data_prefix_large_script() {
 
     let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
     let expected_prefix = data_prefix_for_size(compiled.script.len());
-    let sigscript = compiled.build_sig_script("main", vec![Expr::Bytes(expected_prefix)]).expect("sigscript builds");
+    let sigscript = compiled.build_sig_script("main", vec![expected_prefix.into()]).expect("sigscript builds");
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
     assert!(result.is_ok(), "scriptSizeDataPrefix large failed: {}", result.unwrap_err());
@@ -2472,4 +2656,220 @@ fn compiles_sigscript_reused_inputs_and_fails_on_wrong_value() {
 
     let result = run_script_with_sigscript(compiled.script, sigscript);
     assert!(result.is_err());
+}
+
+#[test]
+fn compile_time_length_for_fixed_size_int_array() {
+    let source = r#"
+        contract Test() {
+            entrypoint function test() {
+                int[5] nums = [1, 2, 3, 4, 5];
+                require(nums.length == 5);
+            }
+        }
+    "#;
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+
+    // Expected script for compile-time length:
+    // The nums.length should be replaced with a compile-time constant 5
+    // require(nums.length == 5) becomes: <5> <5> OP_NUMEQUALVERIFY, then OP_TRUE for entrypoint return
+    let expected_script = vec![
+        0x55, // OP_5 (push 5 for nums.length)
+        0x55, // OP_5 (push 5 for comparison)
+        0x9c, // OP_NUMEQUALVERIFY (combined OP_NUMEQUAL + OP_VERIFY)
+        0x69, // OP_VERIFY
+        0x51, // OP_TRUE (entrypoint return value)
+    ];
+
+    assert_eq!(
+        compiled.script, expected_script,
+        "Script should use compile-time length. Expected: {:?}, Got: {:?}",
+        expected_script, compiled.script
+    );
+}
+
+#[test]
+fn compile_time_length_for_fixed_size_byte_array() {
+    let source = r#"
+        contract Test() {
+            entrypoint function test() {
+                byte[3] data = 0x010203;
+                require(data.length == 3);
+            }
+        }
+    "#;
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+
+    // Expected script for compile-time length:
+    // data.length should be replaced with a compile-time constant 3
+    // require(data.length == 3) becomes: <3> <3> OP_NUMEQUALVERIFY, then OP_TRUE for entrypoint return
+    let expected_script = vec![
+        0x53, // OP_3 (push 3 for data.length)
+        0x53, // OP_3 (push 3 for comparison)
+        0x9c, // OP_NUMEQUALVERIFY (combined OP_NUMEQUAL + OP_VERIFY)
+        0x69, // OP_VERIFY
+        0x51, // OP_TRUE (entrypoint return value)
+    ];
+
+    assert_eq!(
+        compiled.script, expected_script,
+        "Script should use compile-time length. Expected: {:?}, Got: {:?}",
+        expected_script, compiled.script
+    );
+}
+
+#[test]
+fn compile_time_length_for_inferred_array_sizes() {
+    let source = r#"
+        contract Test() {
+            entrypoint function test() {
+                byte[] data = 0x1234abcd;
+                int[] nums = [1, 2, 3];
+                require(data.length == 4);
+                require(nums.length == 3);
+            }
+        }
+    "#;
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+
+    // Both lengths should be compile-time constants (no OP_SIZE path):
+    // require(data.length == 4) -> OP_4 OP_4 OP_NUMEQUALVERIFY
+    // require(nums.length == 3) -> OP_3 OP_3 OP_NUMEQUALVERIFY
+    let expected_script = vec![
+        0x54, // OP_4 (data.length)
+        0x54, // OP_4
+        0x9c, // OP_NUMEQUALVERIFY
+        0x69, // OP_VERIFY
+        0x53, // OP_3 (nums.length)
+        0x53, // OP_3
+        0x9c, // OP_NUMEQUALVERIFY
+        0x69, // OP_VERIFY
+        0x51, // OP_TRUE
+    ];
+
+    assert_eq!(
+        compiled.script, expected_script,
+        "Script should use compile-time inferred lengths. Expected: {:?}, Got: {:?}",
+        expected_script, compiled.script
+    );
+}
+
+#[test]
+fn accepts_fixed_size_array_init_with_correct_size() {
+    let source = r#"
+        contract Test() {
+            entrypoint function test() {
+                int[4] nums = [1, 2, 3, 4];
+                byte[3] data = 0x010203;
+                require(nums.length == 4);
+                require(data.length == 3);
+            }
+        }
+    "#;
+    compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+}
+
+#[test]
+fn rejects_fixed_size_array_init_with_too_few_elements() {
+    let source = r#"
+        contract Test() {
+            entrypoint function test() {
+                int[4] nums = [1, 2, 3];  // Too few
+            }
+        }
+    "#;
+    let result = compile_contract(source, &[], CompileOptions::default());
+    assert!(result.is_err(), "Should reject array with too few elements");
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(err_msg.contains("type mismatch") || err_msg.contains("size mismatch"), "Error should mention type or size mismatch");
+}
+
+#[test]
+fn rejects_fixed_size_array_init_with_too_many_elements() {
+    let source = r#"
+        contract Test() {
+            entrypoint function test() {
+                int[3] nums = [1, 2, 3, 4, 5];  // Too many
+            }
+        }
+    "#;
+    let result = compile_contract(source, &[], CompileOptions::default());
+    assert!(result.is_err(), "Should reject array with too many elements");
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(err_msg.contains("type mismatch") || err_msg.contains("size mismatch"), "Error should mention type or size mismatch");
+}
+
+#[test]
+fn accepts_fixed_size_byte_array_init() {
+    let source = r#"
+        contract Test() {
+            entrypoint function test() {
+                byte[32] hash = 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f;
+                require(hash.length == 32);
+            }
+        }
+    "#;
+    compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+}
+
+#[test]
+fn accepts_array_type_with_constant_size() {
+    // Test that constants can be used in array type declarations like int[SIZE]
+    let source = r#"
+        contract Test() {
+            int constant SIZE = 4;
+            entrypoint function test() {
+                int[SIZE] nums = [1, 2, 3, 4];
+                require(nums.length == SIZE);
+            }
+        }
+    "#;
+    compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds with int[SIZE]");
+}
+
+#[test]
+fn compile_time_length_with_constant_size() {
+    // Test that array.length is computed at compile-time for arrays with constant sizes
+    let source = r#"
+        contract Test() {
+            int constant SIZE = 5;
+            entrypoint function test() {
+                int[SIZE] nums = [1, 2, 3, 4, 5];
+                require(nums.length == SIZE);
+            }
+        }
+    "#;
+    let compiled = compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds");
+
+    // Expected script for compile-time length with constant size:
+    // nums.length should be replaced with compile-time constant 5 (from SIZE)
+    // SIZE constant should also be replaced with 5
+    // require(nums.length == SIZE) becomes: <5> <5> OP_NUMEQUALVERIFY
+    let expected_script = vec![
+        0x55, // OP_5 (push 5 for nums.length)
+        0x55, // OP_5 (push 5 for SIZE constant)
+        0x9c, // OP_NUMEQUALVERIFY
+        0x69, // OP_VERIFY
+        0x51, // OP_TRUE (entrypoint return value)
+    ];
+
+    assert_eq!(
+        compiled.script, expected_script,
+        "Script should use compile-time length with constant. Expected: {:?}, Got: {:?}",
+        expected_script, compiled.script
+    );
+}
+
+#[test]
+fn accepts_byte_array_with_constant_size() {
+    // Test that constants work with byte arrays too
+    let source = r#"
+        contract Test() {
+            int constant HASH_SIZE = 32;
+            entrypoint function test(byte[HASH_SIZE] hash) {
+                require(hash.length == HASH_SIZE);
+            }
+        }
+    "#;
+    compile_contract(source, &[], CompileOptions::default()).expect("compile succeeds with byte[HASH_SIZE]");
 }

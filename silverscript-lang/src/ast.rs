@@ -70,7 +70,7 @@ pub enum TimeVar {
 pub enum Expr {
     Int(i64),
     Bool(bool),
-    Bytes(Vec<u8>),
+    Byte(u8),
     String(String),
     Identifier(String),
     Array(Vec<Expr>),
@@ -100,7 +100,7 @@ impl From<bool> for Expr {
 
 impl From<Vec<u8>> for Expr {
     fn from(value: Vec<u8>) -> Self {
-        Expr::Bytes(value)
+        Expr::Array(value.into_iter().map(Expr::Byte).collect())
     }
 }
 
@@ -118,7 +118,7 @@ impl From<Vec<i64>> for Expr {
 
 impl From<Vec<Vec<u8>>> for Expr {
     fn from(value: Vec<Vec<u8>>) -> Self {
-        Expr::Array(value.into_iter().map(Expr::Bytes).collect())
+        Expr::Array(value.into_iter().map(|bytes| Expr::Array(bytes.into_iter().map(Expr::Byte).collect())).collect())
     }
 }
 
@@ -511,7 +511,6 @@ fn parse_expression(pair: Pair<'_, Rule>) -> Result<Expr, CompilerError> {
         | Rule::unary_suffix
         | Rule::StringLiteral
         | Rule::DateLiteral
-        | Rule::Bytes
         | Rule::type_name => Err(CompilerError::Unsupported(format!("expression not supported: {:?}", pair.as_rule()))),
         _ => Err(CompilerError::Unsupported(format!("unexpected expression: {:?}", pair.as_rule()))),
     }
@@ -719,7 +718,7 @@ fn parse_cast(pair: Pair<'_, Rule>) -> Result<Expr, CompilerError> {
         return Ok(Expr::Call { name: "bytes".to_string(), args });
     }
     if type_name == "byte" {
-        return Ok(Expr::Call { name: "bytes1".to_string(), args });
+        return Ok(Expr::Call { name: "byte[1]".to_string(), args });
     }
     if type_name == "int" {
         return Ok(Expr::Call { name: "int".to_string(), args });
@@ -727,8 +726,21 @@ fn parse_cast(pair: Pair<'_, Rule>) -> Result<Expr, CompilerError> {
     if matches!(type_name.as_str(), "sig" | "pubkey" | "datasig") {
         return Ok(Expr::Call { name: type_name, args });
     }
-    if let Some(size) = type_name.strip_prefix("bytes").and_then(|v| v.parse::<usize>().ok()) {
-        return Ok(Expr::Call { name: format!("bytes{size}"), args });
+    // Handle single byte cast (duplicate check removed above)
+    // Support type[N] syntax
+    if let Some(bracket_pos) = type_name.find('[') {
+        if type_name.ends_with(']') {
+            let _base_type = &type_name[..bracket_pos];
+            let size_str = &type_name[bracket_pos + 1..type_name.len() - 1];
+            // Support both type[N] and type[] (dynamic array)
+            if size_str.is_empty() {
+                // Dynamic array cast like byte[]
+                return Ok(Expr::Call { name: type_name.to_string(), args });
+            } else if let Ok(_size) = size_str.parse::<usize>() {
+                // Fixed-size array cast like byte[32]
+                return Ok(Expr::Call { name: type_name.to_string(), args });
+            }
+        }
     }
     Err(CompilerError::Unsupported(format!("cast type not supported: {type_name}")))
 }
@@ -752,7 +764,8 @@ fn parse_hex_literal(raw: &str) -> Result<Expr, CompilerError> {
         .map(|i| u8::from_str_radix(&normalized[i..i + 2], 16))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| CompilerError::InvalidLiteral(format!("invalid hex literal '{raw}'")))?;
-    Ok(Expr::Bytes(bytes))
+    // Convert Vec<u8> to Expr::Array of Expr::Byte
+    Ok(Expr::Array(bytes.into_iter().map(Expr::Byte).collect()))
 }
 
 fn apply_number_unit(expr: Expr, unit: &str) -> Result<Expr, CompilerError> {
