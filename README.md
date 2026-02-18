@@ -1,3 +1,7 @@
+# BRAIN DUMP FOLDER DO NOT USE
+GO TO https://github.com/5d987411/KTN12
+FOR UPDATES
+
 
 # Silverscript
 
