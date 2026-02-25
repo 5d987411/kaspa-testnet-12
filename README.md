@@ -2,6 +2,28 @@
 GO TO https://github.com/5d987411/KTN12
 FOR UPDATES
 
+
+Updated the dashboard with API notes:
+Files updated:
+1. index.html - Added API notes panel in wallet section showing old vs new API
+2. server.js - Added comment block at top documenting REST vs wRPC approaches
+3. deadman_claim.js - Added header comment with API usage examples
+4. deadman_claim_v2.js - Added header comment with API usage examples
+New API pattern documented:
+const { RpcClient } = require('kaspa');
+const rpc = new RpcClient({
+    url: 'ws://localhost:17210',  // or 'https://api-tn12.kaspa.org'
+    networkId: 'testnet-12'
+});
+await rpc.connect();
+// use rpc.getUtxosByAddresses(), submitTransaction(), etc.
+await rpc.disconnect();
+Ports documented:
+- gRPC: 16210
+- wRPC-Borsh: 17210 (recommended)
+- wRPC-JSON: 18210
+
+- 
 rpc errors...
 Here are the main RPC methods available (full list from docs.rs):
 Query Methods:
