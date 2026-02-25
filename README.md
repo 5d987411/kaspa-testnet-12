@@ -2,6 +2,37 @@
 GO TO https://github.com/5d987411/KTN12
 FOR UPDATES
 
+rpc errors...
+Here are the main RPC methods available (full list from docs.rs):
+Query Methods:
+- get_info - Node info
+- get_block - Get block by hash
+- get_blocks - Get blocks
+- get_block_count - Block count
+- get_block_dag_info - DAG info
+- get_balance_by_address - Address balance
+- get_balances_by_addresses - Multiple balances
+- get_utxos_by_addresses - UTXOs for addresses
+- get_mempool_entries - Mempool txs
+- get_peer_addresses - Known peers
+- get_connected_peer_info - Connected peers
+- get_fee_estimate - Fee estimate
+- get_sink - Current sink
+- get_sink_blue_score - Sink blue score
+- get_metrics - Node metrics
+Actions:
+- submit_transaction - Submit tx
+- submit_block - Submit block
+- add_peer - Add peer
+- ban/unban - Ban peers
+- ping - Ping node
+Subscriptions:
+- start_notify / stop_notify - Subscribe to events
+- utxos_changed - UTXO change notifications
+Ports: gRPC 16210, wRPC-Borsh 17210, wRPC-JSON 18210 (Testnet-12)
+
+
+
 Goal
 The user is setting up a Kaspa TN12 testnet dashboard with various features including:
 - Starting kaspad, kaspa-miner, and related services
