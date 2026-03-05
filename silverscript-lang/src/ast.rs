@@ -766,6 +766,8 @@ fn apply_number_unit(expr: Expr, unit: &str) -> Result<Expr, CompilerError> {
         "hours" => 60 * 60,
         "days" => 24 * 60 * 60,
         "weeks" => 7 * 24 * 60 * 60,
+        "months" => 30 * 24 * 60 * 60,
+        "years" => 365 * 24 * 60 * 60,
         "litras" => 1,
         "grains" => 100_000,
         "kas" => 100_000_000,

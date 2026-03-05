@@ -1495,3 +1495,163 @@ fn compiles_sibling_introspection_example_and_verifies() {
     let result = vm.execute();
     assert!(result.is_ok(), "sibling introspection example failed: {}", result.unwrap_err());
 }
+
+#[test]
+fn compiles_deadman3_example_and_verifies() {
+    let source = load_example_source("deadman3.sil");
+
+    let inheritor = random_keypair();
+    let cold = random_keypair();
+    let hot = random_keypair();
+    let inheritor_pk = inheritor.x_only_public_key().0.serialize();
+    let cold_pk = cold.x_only_public_key().0.serialize();
+    let hot_pk = hot.x_only_public_key().0.serialize();
+
+    let inheritor_hash =
+        blake2b_simd::Params::new().hash_length(32).to_state().update(inheritor_pk.as_slice()).finalize().as_bytes().to_vec();
+    let cold_hash = blake2b_simd::Params::new().hash_length(32).to_state().update(cold_pk.as_slice()).finalize().as_bytes().to_vec();
+    let hot_hash = blake2b_simd::Params::new().hash_length(32).to_state().update(hot_pk.as_slice()).finalize().as_bytes().to_vec();
+
+    let timeout_mins: i64 = 60;
+    let timeout_days: i64 = 30;
+    let timeout_months: i64 = 6;
+    let timeout_years: i64 = 1;
+
+    let constructor_args = vec![
+        inheritor_hash.clone().into(),
+        cold_hash.clone().into(),
+        hot_hash.clone().into(),
+        timeout_mins.into(),
+        timeout_days.into(),
+        timeout_months.into(),
+        timeout_years.into(),
+    ];
+    let compiled = compile_contract(&source, &constructor_args, CompileOptions::default()).expect("compile succeeds");
+
+    // Test inherit_days() function
+    let input = TransactionInput {
+        previous_outpoint: TransactionOutpoint { transaction_id: TransactionId::from_bytes([12u8; 32]), index: 0 },
+        signature_script: vec![],
+        sequence: (30 * 24 * 60 * 60) as u64,
+        sig_op_count: 1,
+    };
+    let output =
+        TransactionOutput { value: 5_000, script_public_key: ScriptPublicKey::new(0, compiled.script.clone().into()), covenant: None };
+
+    let tx = Transaction::new(1, vec![input.clone()], vec![output.clone()], 0, Default::default(), 0, vec![]);
+    let utxo_entry = UtxoEntry::new(output.value, ScriptPublicKey::new(0, compiled.script.clone().into()), 0, tx.is_coinbase(), None);
+    let mut tx = MutableTransaction::with_entries(tx, vec![utxo_entry.clone()]);
+
+    let reused_values = SigHashReusedValuesUnsync::new();
+    let sig_hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
+    let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
+    let sig = inheritor.sign_schnorr(msg);
+    let mut signature = Vec::new();
+    signature.extend_from_slice(sig.as_ref().as_slice());
+    signature.push(SIG_HASH_ALL.to_u8());
+
+    let sigscript = compiled
+        .build_sig_script("inherit_days", vec![inheritor_pk.to_vec().into(), signature.clone().into()])
+        .expect("sigscript builds");
+    tx.tx.inputs[0].signature_script = sigscript;
+
+    let tx = tx.as_verifiable();
+    let sig_cache = Cache::new(10_000);
+    let mut vm = TxScriptEngine::from_transaction_input(
+        &tx,
+        &tx.inputs()[0],
+        0,
+        &utxo_entry,
+        EngineCtx::new(&sig_cache).with_reused(&reused_values),
+        EngineFlags { covenants_enabled: true },
+    );
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "deadman3 inherit_days failed: {}", result.unwrap_err());
+
+    // Test cold() function - immediate access
+    let input = TransactionInput {
+        previous_outpoint: TransactionOutpoint { transaction_id: TransactionId::from_bytes([13u8; 32]), index: 0 },
+        signature_script: vec![],
+        sequence: 0,
+        sig_op_count: 1,
+    };
+    let output =
+        TransactionOutput { value: 4_000, script_public_key: ScriptPublicKey::new(0, compiled.script.clone().into()), covenant: None };
+
+    let tx = Transaction::new(1, vec![input.clone()], vec![output.clone()], 0, Default::default(), 0, vec![]);
+    let utxo_entry = UtxoEntry::new(output.value, ScriptPublicKey::new(0, compiled.script.clone().into()), 0, tx.is_coinbase(), None);
+    let mut tx = MutableTransaction::with_entries(tx, vec![utxo_entry.clone()]);
+
+    let reused_values = SigHashReusedValuesUnsync::new();
+    let sig_hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
+    let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
+    let sig = cold.sign_schnorr(msg);
+    let mut signature = Vec::new();
+    signature.extend_from_slice(sig.as_ref().as_slice());
+    signature.push(SIG_HASH_ALL.to_u8());
+
+    let sigscript =
+        compiled.build_sig_script("cold", vec![cold_pk.to_vec().into(), signature.clone().into()]).expect("sigscript builds");
+    tx.tx.inputs[0].signature_script = sigscript;
+
+    let tx = tx.as_verifiable();
+    let sig_cache = Cache::new(10_000);
+    let mut vm = TxScriptEngine::from_transaction_input(
+        &tx,
+        &tx.inputs()[0],
+        0,
+        &utxo_entry,
+        EngineCtx::new(&sig_cache).with_reused(&reused_values),
+        EngineFlags { covenants_enabled: true },
+    );
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "deadman3 cold failed: {}", result.unwrap_err());
+
+    // Test refresh() function
+    let input_value = 10_000u64;
+    let output0_value = input_value - 1000;
+
+    let input = TransactionInput {
+        previous_outpoint: TransactionOutpoint { transaction_id: TransactionId::from_bytes([14u8; 32]), index: 0 },
+        signature_script: vec![],
+        sequence: 0,
+        sig_op_count: 1,
+    };
+    let output0 = TransactionOutput {
+        value: output0_value,
+        script_public_key: ScriptPublicKey::new(0, compiled.script.clone().into()),
+        covenant: None,
+    };
+
+    let tx = Transaction::new(1, vec![input.clone()], vec![output0.clone()], 0, Default::default(), 0, vec![]);
+    let utxo_entry = UtxoEntry::new(input_value, ScriptPublicKey::new(0, compiled.script.clone().into()), 0, tx.is_coinbase(), None);
+    let mut tx = MutableTransaction::with_entries(tx, vec![utxo_entry.clone()]);
+
+    let reused_values = SigHashReusedValuesUnsync::new();
+    let sig_hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
+    let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
+    let sig = hot.sign_schnorr(msg);
+    let mut signature = Vec::new();
+    signature.extend_from_slice(sig.as_ref().as_slice());
+    signature.push(SIG_HASH_ALL.to_u8());
+
+    let sigscript =
+        compiled.build_sig_script("refresh", vec![hot_pk.to_vec().into(), signature.clone().into()]).expect("sigscript builds");
+    tx.tx.inputs[0].signature_script = sigscript;
+
+    let tx = tx.as_verifiable();
+    let sig_cache = Cache::new(10_000);
+    let mut vm = TxScriptEngine::from_transaction_input(
+        &tx,
+        &tx.inputs()[0],
+        0,
+        &utxo_entry,
+        EngineCtx::new(&sig_cache).with_reused(&reused_values),
+        EngineFlags { covenants_enabled: true },
+    );
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "deadman3 refresh failed: {}", result.unwrap_err());
+}

@@ -1,0 +1,52 @@
+pragma silverscript ^0.1.0;
+
+contract Deadman(
+    bytes32 inheritor,
+    bytes32 cold,
+    bytes32 hot,
+    int timeout_mins,
+    int timeout_days,
+    int timeout_months,
+    int timeout_years
+) {
+    entrypoint function inherit_mins(pubkey pk, sig s) {
+        require(this.age >= timeout_mins * 60);
+        require(blake2b(pk) == inheritor);
+        require(checkSig(s, pk));
+    }
+
+    entrypoint function inherit_days(pubkey pk, sig s) {
+        require(this.age >= timeout_days * 24 * 60 * 60);
+        require(blake2b(pk) == inheritor);
+        require(checkSig(s, pk));
+    }
+
+    entrypoint function inherit_months(pubkey pk, sig s) {
+        require(this.age >= timeout_months * 30 * 24 * 60 * 60);
+        require(blake2b(pk) == inheritor);
+        require(checkSig(s, pk));
+    }
+
+    entrypoint function inherit_years(pubkey pk, sig s) {
+        require(this.age >= timeout_years * 365 * 24 * 60 * 60);
+        require(blake2b(pk) == inheritor);
+        require(checkSig(s, pk));
+    }
+
+    entrypoint function cold(pubkey pk, sig s) {
+        require(blake2b(pk) == cold);
+        require(checkSig(s, pk));
+    }
+
+    entrypoint function refresh(pubkey pk, sig s) {
+        require(blake2b(pk) == hot);
+        require(checkSig(s, pk));
+
+        int minerFee = 1000;
+        int amount = tx.inputs[this.activeInputIndex].value - minerFee;
+        require(tx.outputs[0].value == amount);
+
+        bytes selfLock = tx.inputs[this.activeInputIndex].lockingBytecode;
+        require(tx.outputs[0].lockingBytecode == selfLock);
+    }
+}
