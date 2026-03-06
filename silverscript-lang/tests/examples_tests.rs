@@ -1497,8 +1497,8 @@ fn compiles_sibling_introspection_example_and_verifies() {
 }
 
 #[test]
-fn compiles_deadman3_example_and_verifies() {
-    let source = load_example_source("deadman3.sil");
+fn compiles_deadman_original_example_and_verifies() {
+    let source = load_example_source("deadman_original.sil");
 
     let inheritor = random_keypair();
     let cold = random_keypair();
@@ -1567,7 +1567,7 @@ fn compiles_deadman3_example_and_verifies() {
     );
 
     let result = vm.execute();
-    assert!(result.is_ok(), "deadman3 inherit_days failed: {}", result.unwrap_err());
+    assert!(result.is_ok(), "deadman_original inherit_days failed: {}", result.unwrap_err());
 
     // Test cold() function - immediate access
     let input = TransactionInput {
@@ -1607,7 +1607,7 @@ fn compiles_deadman3_example_and_verifies() {
     );
 
     let result = vm.execute();
-    assert!(result.is_ok(), "deadman3 cold failed: {}", result.unwrap_err());
+    assert!(result.is_ok(), "deadman_original cold failed: {}", result.unwrap_err());
 
     // Test refresh() function
     let input_value = 10_000u64;
@@ -1653,5 +1653,104 @@ fn compiles_deadman3_example_and_verifies() {
     );
 
     let result = vm.execute();
-    assert!(result.is_ok(), "deadman3 refresh failed: {}", result.unwrap_err());
+    assert!(result.is_ok(), "deadman_original refresh failed: {}", result.unwrap_err());
+}
+
+#[test]
+fn compiles_deadman_kaspa_com_example_and_verifies() {
+    let source = load_example_source("deadman_kaspa_com.sil");
+
+    let owner = random_keypair();
+    let heir = random_keypair();
+    let owner_pk = owner.x_only_public_key().0.serialize();
+    let heir_pk = heir.x_only_public_key().0.serialize();
+
+    let inactivity_period: i64 = 30 * 24 * 60 * 60;
+
+    let constructor_args = vec![owner_pk.to_vec().into(), heir_pk.to_vec().into(), inactivity_period.into()];
+    let compiled = compile_contract(&source, &constructor_args, CompileOptions::default()).expect("compile succeeds");
+
+    // Test claim() function - heir can claim after inactivity period
+    let input = TransactionInput {
+        previous_outpoint: TransactionOutpoint { transaction_id: TransactionId::from_bytes([12u8; 32]), index: 0 },
+        signature_script: vec![],
+        sequence: inactivity_period as u64,
+        sig_op_count: 1,
+    };
+    let output =
+        TransactionOutput { value: 5_000, script_public_key: ScriptPublicKey::new(0, compiled.script.clone().into()), covenant: None };
+
+    let tx = Transaction::new(1, vec![input.clone()], vec![output.clone()], 0, Default::default(), 0, vec![]);
+    let utxo_entry = UtxoEntry::new(output.value, ScriptPublicKey::new(0, compiled.script.clone().into()), 0, tx.is_coinbase(), None);
+    let mut tx = MutableTransaction::with_entries(tx, vec![utxo_entry.clone()]);
+
+    let reused_values = SigHashReusedValuesUnsync::new();
+    let sig_hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
+    let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
+    let sig = heir.sign_schnorr(msg);
+    let mut signature = Vec::new();
+    signature.extend_from_slice(sig.as_ref().as_slice());
+    signature.push(SIG_HASH_ALL.to_u8());
+
+    let sigscript = compiled.build_sig_script("claim", vec![signature.clone().into()]).expect("sigscript builds");
+    tx.tx.inputs[0].signature_script = sigscript;
+
+    let tx = tx.as_verifiable();
+    let sig_cache = Cache::new(10_000);
+    let mut vm = TxScriptEngine::from_transaction_input(
+        &tx,
+        &tx.inputs()[0],
+        0,
+        &utxo_entry,
+        EngineCtx::new(&sig_cache).with_reused(&reused_values),
+        EngineFlags { covenants_enabled: true },
+    );
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "deadman_kaspa_com claim failed: {}", result.unwrap_err());
+
+    // Test keepAlive() function - owner can reset timer
+    let input_value = 10_000u64;
+    let output0_value = input_value - 1000;
+
+    let input = TransactionInput {
+        previous_outpoint: TransactionOutpoint { transaction_id: TransactionId::from_bytes([13u8; 32]), index: 0 },
+        signature_script: vec![],
+        sequence: 0,
+        sig_op_count: 1,
+    };
+    let output0 = TransactionOutput {
+        value: output0_value,
+        script_public_key: ScriptPublicKey::new(0, compiled.script.clone().into()),
+        covenant: None,
+    };
+
+    let tx = Transaction::new(1, vec![input.clone()], vec![output0.clone()], 0, Default::default(), 0, vec![]);
+    let utxo_entry = UtxoEntry::new(input_value, ScriptPublicKey::new(0, compiled.script.clone().into()), 0, tx.is_coinbase(), None);
+    let mut tx = MutableTransaction::with_entries(tx, vec![utxo_entry.clone()]);
+
+    let reused_values = SigHashReusedValuesUnsync::new();
+    let sig_hash = calc_schnorr_signature_hash(&tx.as_verifiable(), 0, SIG_HASH_ALL, &reused_values);
+    let msg = secp256k1::Message::from_digest_slice(sig_hash.as_bytes().as_slice()).unwrap();
+    let sig = owner.sign_schnorr(msg);
+    let mut signature = Vec::new();
+    signature.extend_from_slice(sig.as_ref().as_slice());
+    signature.push(SIG_HASH_ALL.to_u8());
+
+    let sigscript = compiled.build_sig_script("keepAlive", vec![signature.clone().into()]).expect("sigscript builds");
+    tx.tx.inputs[0].signature_script = sigscript;
+
+    let tx = tx.as_verifiable();
+    let sig_cache = Cache::new(10_000);
+    let mut vm = TxScriptEngine::from_transaction_input(
+        &tx,
+        &tx.inputs()[0],
+        0,
+        &utxo_entry,
+        EngineCtx::new(&sig_cache).with_reused(&reused_values),
+        EngineFlags { covenants_enabled: true },
+    );
+
+    let result = vm.execute();
+    assert!(result.is_ok(), "deadman_kaspa_com keepAlive failed: {}", result.unwrap_err());
 }

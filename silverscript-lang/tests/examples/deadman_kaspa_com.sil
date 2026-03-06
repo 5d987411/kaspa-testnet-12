@@ -1,0 +1,20 @@
+pragma silverscript ^0.1.0;
+
+contract DeadmanSwitch(
+    pubkey owner,
+    pubkey heir,
+    int inactivityPeriod
+) {
+    entrypoint function keepAlive(sig s) {
+        require(checkSig(s, owner));
+        require(tx.outputs[0].value >= tx.inputs[this.activeInputIndex].value - 1000);
+        
+        bytes selfLock = tx.inputs[this.activeInputIndex].lockingBytecode;
+        require(tx.outputs[0].lockingBytecode == selfLock);
+    }
+    
+    entrypoint function claim(sig s) {
+        require(checkSig(s, heir));
+        require(this.age >= inactivityPeriod);
+    }
+}
