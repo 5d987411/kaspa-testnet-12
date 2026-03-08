@@ -1,0 +1,1186 @@
+{
+  "contract_name": "Deadman",
+  "script": [
+    118,
+    0,
+    156,
+    99,
+    117,
+    0,
+    1,
+    60,
+    149,
+    177,
+    81,
+    121,
+    170,
+    32,
+    83,
+    217,
+    216,
+    69,
+    48,
+    90,
+    113,
+    40,
+    192,
+    41,
+    244,
+    76,
+    64,
+    90,
+    97,
+    128,
+    71,
+    124,
+    102,
+    204,
+    27,
+    88,
+    57,
+    79,
+    82,
+    238,
+    117,
+    173,
+    7,
+    9,
+    216,
+    246,
+    135,
+    105,
+    0,
+    121,
+    82,
+    121,
+    172,
+    105,
+    117,
+    117,
+    81,
+    103,
+    118,
+    81,
+    156,
+    99,
+    117,
+    0,
+    1,
+    24,
+    149,
+    1,
+    60,
+    149,
+    1,
+    60,
+    149,
+    177,
+    81,
+    121,
+    170,
+    32,
+    83,
+    217,
+    216,
+    69,
+    48,
+    90,
+    113,
+    40,
+    192,
+    41,
+    244,
+    76,
+    64,
+    90,
+    97,
+    128,
+    71,
+    124,
+    102,
+    204,
+    27,
+    88,
+    57,
+    79,
+    82,
+    238,
+    117,
+    173,
+    7,
+    9,
+    216,
+    246,
+    135,
+    105,
+    0,
+    121,
+    82,
+    121,
+    172,
+    105,
+    117,
+    117,
+    81,
+    103,
+    118,
+    82,
+    156,
+    99,
+    117,
+    81,
+    1,
+    30,
+    149,
+    1,
+    24,
+    149,
+    1,
+    60,
+    149,
+    1,
+    60,
+    149,
+    177,
+    81,
+    121,
+    170,
+    32,
+    83,
+    217,
+    216,
+    69,
+    48,
+    90,
+    113,
+    40,
+    192,
+    41,
+    244,
+    76,
+    64,
+    90,
+    97,
+    128,
+    71,
+    124,
+    102,
+    204,
+    27,
+    88,
+    57,
+    79,
+    82,
+    238,
+    117,
+    173,
+    7,
+    9,
+    216,
+    246,
+    135,
+    105,
+    0,
+    121,
+    82,
+    121,
+    172,
+    105,
+    117,
+    117,
+    81,
+    103,
+    118,
+    83,
+    156,
+    99,
+    117,
+    0,
+    2,
+    109,
+    1,
+    149,
+    1,
+    24,
+    149,
+    1,
+    60,
+    149,
+    1,
+    60,
+    149,
+    177,
+    81,
+    121,
+    170,
+    32,
+    83,
+    217,
+    216,
+    69,
+    48,
+    90,
+    113,
+    40,
+    192,
+    41,
+    244,
+    76,
+    64,
+    90,
+    97,
+    128,
+    71,
+    124,
+    102,
+    204,
+    27,
+    88,
+    57,
+    79,
+    82,
+    238,
+    117,
+    173,
+    7,
+    9,
+    216,
+    246,
+    135,
+    105,
+    0,
+    121,
+    82,
+    121,
+    172,
+    105,
+    117,
+    117,
+    81,
+    103,
+    118,
+    84,
+    156,
+    99,
+    117,
+    81,
+    121,
+    170,
+    32,
+    55,
+    107,
+    106,
+    12,
+    211,
+    170,
+    235,
+    130,
+    69,
+    108,
+    107,
+    201,
+    14,
+    0,
+    154,
+    21,
+    117,
+    229,
+    102,
+    18,
+    123,
+    248,
+    33,
+    155,
+    64,
+    125,
+    196,
+    0,
+    239,
+    114,
+    252,
+    239,
+    135,
+    105,
+    0,
+    121,
+    82,
+    121,
+    172,
+    105,
+    117,
+    117,
+    81,
+    103,
+    118,
+    85,
+    156,
+    99,
+    117,
+    81,
+    121,
+    170,
+    32,
+    55,
+    107,
+    106,
+    12,
+    211,
+    170,
+    235,
+    130,
+    69,
+    108,
+    107,
+    201,
+    14,
+    0,
+    154,
+    21,
+    117,
+    229,
+    102,
+    18,
+    123,
+    248,
+    33,
+    155,
+    64,
+    125,
+    196,
+    0,
+    239,
+    114,
+    252,
+    239,
+    135,
+    105,
+    0,
+    121,
+    82,
+    121,
+    172,
+    105,
+    0,
+    194,
+    185,
+    190,
+    2,
+    232,
+    3,
+    148,
+    156,
+    105,
+    0,
+    195,
+    185,
+    191,
+    135,
+    105,
+    117,
+    117,
+    81,
+    103,
+    117,
+    0,
+    105,
+    104,
+    104,
+    104,
+    104,
+    104,
+    104
+  ],
+  "ast": {
+    "name": "Deadman",
+    "params": [
+      {
+        "type_name": "bytes32",
+        "name": "inheritor"
+      },
+      {
+        "type_name": "bytes32",
+        "name": "cold"
+      },
+      {
+        "type_name": "bytes32",
+        "name": "hot"
+      },
+      {
+        "type_name": "int",
+        "name": "timeout_mins"
+      },
+      {
+        "type_name": "int",
+        "name": "timeout_days"
+      },
+      {
+        "type_name": "int",
+        "name": "timeout_months"
+      },
+      {
+        "type_name": "int",
+        "name": "timeout_years"
+      }
+    ],
+    "constants": {},
+    "functions": [
+      {
+        "name": "inherit_mins",
+        "params": [
+          {
+            "type_name": "pubkey",
+            "name": "pk"
+          },
+          {
+            "type_name": "sig",
+            "name": "s"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "body": [
+          {
+            "kind": "time_op",
+            "data": {
+              "tx_var": "this_age",
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "mul",
+                  "left": {
+                    "kind": "identifier",
+                    "data": "timeout_mins"
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 60
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "call",
+                    "data": {
+                      "name": "blake2b",
+                      "args": [
+                        {
+                          "kind": "identifier",
+                          "data": "pk"
+                        }
+                      ]
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "inheritor"
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "s"
+                    },
+                    {
+                      "kind": "identifier",
+                      "data": "pk"
+                    }
+                  ]
+                }
+              },
+              "message": null
+            }
+          }
+        ]
+      },
+      {
+        "name": "inherit_days",
+        "params": [
+          {
+            "type_name": "pubkey",
+            "name": "pk"
+          },
+          {
+            "type_name": "sig",
+            "name": "s"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "body": [
+          {
+            "kind": "time_op",
+            "data": {
+              "tx_var": "this_age",
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "mul",
+                  "left": {
+                    "kind": "binary",
+                    "data": {
+                      "op": "mul",
+                      "left": {
+                        "kind": "binary",
+                        "data": {
+                          "op": "mul",
+                          "left": {
+                            "kind": "identifier",
+                            "data": "timeout_days"
+                          },
+                          "right": {
+                            "kind": "int",
+                            "data": 24
+                          }
+                        }
+                      },
+                      "right": {
+                        "kind": "int",
+                        "data": 60
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 60
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "call",
+                    "data": {
+                      "name": "blake2b",
+                      "args": [
+                        {
+                          "kind": "identifier",
+                          "data": "pk"
+                        }
+                      ]
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "inheritor"
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "s"
+                    },
+                    {
+                      "kind": "identifier",
+                      "data": "pk"
+                    }
+                  ]
+                }
+              },
+              "message": null
+            }
+          }
+        ]
+      },
+      {
+        "name": "inherit_months",
+        "params": [
+          {
+            "type_name": "pubkey",
+            "name": "pk"
+          },
+          {
+            "type_name": "sig",
+            "name": "s"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "body": [
+          {
+            "kind": "time_op",
+            "data": {
+              "tx_var": "this_age",
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "mul",
+                  "left": {
+                    "kind": "binary",
+                    "data": {
+                      "op": "mul",
+                      "left": {
+                        "kind": "binary",
+                        "data": {
+                          "op": "mul",
+                          "left": {
+                            "kind": "binary",
+                            "data": {
+                              "op": "mul",
+                              "left": {
+                                "kind": "identifier",
+                                "data": "timeout_months"
+                              },
+                              "right": {
+                                "kind": "int",
+                                "data": 30
+                              }
+                            }
+                          },
+                          "right": {
+                            "kind": "int",
+                            "data": 24
+                          }
+                        }
+                      },
+                      "right": {
+                        "kind": "int",
+                        "data": 60
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 60
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "call",
+                    "data": {
+                      "name": "blake2b",
+                      "args": [
+                        {
+                          "kind": "identifier",
+                          "data": "pk"
+                        }
+                      ]
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "inheritor"
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "s"
+                    },
+                    {
+                      "kind": "identifier",
+                      "data": "pk"
+                    }
+                  ]
+                }
+              },
+              "message": null
+            }
+          }
+        ]
+      },
+      {
+        "name": "inherit_years",
+        "params": [
+          {
+            "type_name": "pubkey",
+            "name": "pk"
+          },
+          {
+            "type_name": "sig",
+            "name": "s"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "body": [
+          {
+            "kind": "time_op",
+            "data": {
+              "tx_var": "this_age",
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "mul",
+                  "left": {
+                    "kind": "binary",
+                    "data": {
+                      "op": "mul",
+                      "left": {
+                        "kind": "binary",
+                        "data": {
+                          "op": "mul",
+                          "left": {
+                            "kind": "binary",
+                            "data": {
+                              "op": "mul",
+                              "left": {
+                                "kind": "identifier",
+                                "data": "timeout_years"
+                              },
+                              "right": {
+                                "kind": "int",
+                                "data": 365
+                              }
+                            }
+                          },
+                          "right": {
+                            "kind": "int",
+                            "data": 24
+                          }
+                        }
+                      },
+                      "right": {
+                        "kind": "int",
+                        "data": 60
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 60
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "call",
+                    "data": {
+                      "name": "blake2b",
+                      "args": [
+                        {
+                          "kind": "identifier",
+                          "data": "pk"
+                        }
+                      ]
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "inheritor"
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "s"
+                    },
+                    {
+                      "kind": "identifier",
+                      "data": "pk"
+                    }
+                  ]
+                }
+              },
+              "message": null
+            }
+          }
+        ]
+      },
+      {
+        "name": "cold",
+        "params": [
+          {
+            "type_name": "pubkey",
+            "name": "pk"
+          },
+          {
+            "type_name": "sig",
+            "name": "s"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "body": [
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "call",
+                    "data": {
+                      "name": "blake2b",
+                      "args": [
+                        {
+                          "kind": "identifier",
+                          "data": "pk"
+                        }
+                      ]
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "cold"
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "s"
+                    },
+                    {
+                      "kind": "identifier",
+                      "data": "pk"
+                    }
+                  ]
+                }
+              },
+              "message": null
+            }
+          }
+        ]
+      },
+      {
+        "name": "refresh",
+        "params": [
+          {
+            "type_name": "pubkey",
+            "name": "pk"
+          },
+          {
+            "type_name": "sig",
+            "name": "s"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "body": [
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "call",
+                    "data": {
+                      "name": "blake2b",
+                      "args": [
+                        {
+                          "kind": "identifier",
+                          "data": "pk"
+                        }
+                      ]
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "hot"
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "s"
+                    },
+                    {
+                      "kind": "identifier",
+                      "data": "pk"
+                    }
+                  ]
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_name": "int",
+              "modifiers": [],
+              "name": "minerFee",
+              "expr": {
+                "kind": "int",
+                "data": 1000
+              }
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_name": "int",
+              "modifiers": [],
+              "name": "amount",
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "sub",
+                  "left": {
+                    "kind": "introspection",
+                    "data": {
+                      "kind": "input_value",
+                      "index": {
+                        "kind": "nullary",
+                        "data": "active_input_index"
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "minerFee"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "introspection",
+                    "data": {
+                      "kind": "output_value",
+                      "index": {
+                        "kind": "int",
+                        "data": 0
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "amount"
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_name": "bytes",
+              "modifiers": [],
+              "name": "selfLock",
+              "expr": {
+                "kind": "introspection",
+                "data": {
+                  "kind": "input_locking_bytecode",
+                  "index": {
+                    "kind": "nullary",
+                    "data": "active_input_index"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "introspection",
+                    "data": {
+                      "kind": "output_locking_bytecode",
+                      "index": {
+                        "kind": "int",
+                        "data": 0
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "selfLock"
+                  }
+                }
+              },
+              "message": null
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "abi": [
+    {
+      "name": "inherit_mins",
+      "inputs": [
+        {
+          "name": "pk",
+          "type_name": "pubkey"
+        },
+        {
+          "name": "s",
+          "type_name": "sig"
+        }
+      ]
+    },
+    {
+      "name": "inherit_days",
+      "inputs": [
+        {
+          "name": "pk",
+          "type_name": "pubkey"
+        },
+        {
+          "name": "s",
+          "type_name": "sig"
+        }
+      ]
+    },
+    {
+      "name": "inherit_months",
+      "inputs": [
+        {
+          "name": "pk",
+          "type_name": "pubkey"
+        },
+        {
+          "name": "s",
+          "type_name": "sig"
+        }
+      ]
+    },
+    {
+      "name": "inherit_years",
+      "inputs": [
+        {
+          "name": "pk",
+          "type_name": "pubkey"
+        },
+        {
+          "name": "s",
+          "type_name": "sig"
+        }
+      ]
+    },
+    {
+      "name": "cold",
+      "inputs": [
+        {
+          "name": "pk",
+          "type_name": "pubkey"
+        },
+        {
+          "name": "s",
+          "type_name": "sig"
+        }
+      ]
+    },
+    {
+      "name": "refresh",
+      "inputs": [
+        {
+          "name": "pk",
+          "type_name": "pubkey"
+        },
+        {
+          "name": "s",
+          "type_name": "sig"
+        }
+      ]
+    }
+  ],
+  "without_selector": false
+}

@@ -1,0 +1,330 @@
+{
+  "contract_name": "DeadmanSwitch",
+  "script": [
+    118,
+    0,
+    156,
+    99,
+    117,
+    0,
+    121,
+    32,
+    32,
+    121,
+    182,
+    161,
+    182,
+    110,
+    225,
+    101,
+    12,
+    140,
+    188,
+    199,
+    153,
+    255,
+    248,
+    32,
+    211,
+    233,
+    180,
+    174,
+    157,
+    86,
+    157,
+    27,
+    111,
+    126,
+    173,
+    201,
+    198,
+    35,
+    76,
+    45,
+    172,
+    105,
+    0,
+    194,
+    185,
+    190,
+    2,
+    232,
+    3,
+    148,
+    162,
+    105,
+    0,
+    195,
+    185,
+    191,
+    135,
+    105,
+    117,
+    81,
+    103,
+    118,
+    81,
+    156,
+    99,
+    117,
+    0,
+    121,
+    32,
+    20,
+    241,
+    97,
+    210,
+    228,
+    255,
+    56,
+    229,
+    232,
+    80,
+    220,
+    115,
+    213,
+    242,
+    199,
+    213,
+    139,
+    31,
+    245,
+    50,
+    183,
+    20,
+    203,
+    38,
+    205,
+    69,
+    217,
+    18,
+    42,
+    192,
+    77,
+    143,
+    172,
+    105,
+    4,
+    128,
+    51,
+    225,
+    1,
+    177,
+    117,
+    81,
+    103,
+    117,
+    0,
+    105,
+    104,
+    104
+  ],
+  "ast": {
+    "name": "DeadmanSwitch",
+    "params": [
+      {
+        "type_name": "pubkey",
+        "name": "owner"
+      },
+      {
+        "type_name": "pubkey",
+        "name": "heir"
+      },
+      {
+        "type_name": "int",
+        "name": "inactivityPeriod"
+      }
+    ],
+    "constants": {},
+    "functions": [
+      {
+        "name": "keepAlive",
+        "params": [
+          {
+            "type_name": "sig",
+            "name": "s"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "body": [
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "s"
+                    },
+                    {
+                      "kind": "identifier",
+                      "data": "owner"
+                    }
+                  ]
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "ge",
+                  "left": {
+                    "kind": "introspection",
+                    "data": {
+                      "kind": "output_value",
+                      "index": {
+                        "kind": "int",
+                        "data": 0
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "binary",
+                    "data": {
+                      "op": "sub",
+                      "left": {
+                        "kind": "introspection",
+                        "data": {
+                          "kind": "input_value",
+                          "index": {
+                            "kind": "nullary",
+                            "data": "active_input_index"
+                          }
+                        }
+                      },
+                      "right": {
+                        "kind": "int",
+                        "data": 1000
+                      }
+                    }
+                  }
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_name": "bytes",
+              "modifiers": [],
+              "name": "selfLock",
+              "expr": {
+                "kind": "introspection",
+                "data": {
+                  "kind": "input_locking_bytecode",
+                  "index": {
+                    "kind": "nullary",
+                    "data": "active_input_index"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "introspection",
+                    "data": {
+                      "kind": "output_locking_bytecode",
+                      "index": {
+                        "kind": "int",
+                        "data": 0
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "data": "selfLock"
+                  }
+                }
+              },
+              "message": null
+            }
+          }
+        ]
+      },
+      {
+        "name": "claim",
+        "params": [
+          {
+            "type_name": "sig",
+            "name": "s"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "body": [
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "s"
+                    },
+                    {
+                      "kind": "identifier",
+                      "data": "heir"
+                    }
+                  ]
+                }
+              },
+              "message": null
+            }
+          },
+          {
+            "kind": "time_op",
+            "data": {
+              "tx_var": "this_age",
+              "expr": {
+                "kind": "identifier",
+                "data": "inactivityPeriod"
+              },
+              "message": null
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "abi": [
+    {
+      "name": "keepAlive",
+      "inputs": [
+        {
+          "name": "s",
+          "type_name": "sig"
+        }
+      ]
+    },
+    {
+      "name": "claim",
+      "inputs": [
+        {
+          "name": "s",
+          "type_name": "sig"
+        }
+      ]
+    }
+  ],
+  "without_selector": false
+}
